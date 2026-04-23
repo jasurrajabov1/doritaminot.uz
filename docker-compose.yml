@@ -7,7 +7,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      - sqlite_data:/app/db_data
+      - ./db.sqlite3:/app/db.sqlite3
     environment:
       - DEBUG=False
     restart: always
