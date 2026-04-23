@@ -43,7 +43,7 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-this-secret-key")
 if not DEBUG and SECRET_KEY == "dev-only-change-this-secret-key":
     raise RuntimeError("Production учун DJANGO_SECRET_KEY ни .env ичида беринг.")
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost")
+ALLOWED_HOSTS = ['doritaminot.uz', 'www.doritaminot.uz', '45.80.148.196', 'localhost', '127.0.0.1']
 
 CSRF_TRUSTED_ORIGINS = env_list(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
