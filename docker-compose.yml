@@ -1,0 +1,22 @@
+version: '1.0'
+
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+      - sqlite_data:/app/db_data
+    environment:
+      - DEBUG=False
+    restart: always
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  sqlite_data:
