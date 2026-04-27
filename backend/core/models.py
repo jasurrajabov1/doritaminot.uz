@@ -4,12 +4,14 @@ from django.conf import settings
 from django.db import models
 
 from .constants import PAGE_CHOICES
+from django.core.validators import MinLengthValidator, MaxLengthValidator
 
 
 class Institution(models.Model):
     name = models.CharField(max_length=255)
     address = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    inn = models.CharField(max_length=9,unique=True, validators=[MinLengthValidator(9)], verbose_name="STIR(INN)")
 
     class Meta:
         ordering = ["name"]
