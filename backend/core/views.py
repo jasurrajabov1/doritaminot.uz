@@ -246,7 +246,7 @@ class InstitutionDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             extra_data={
                 "name": item.name,
                 "address": item.address,
-                "inn": item.inn
+                "inn": item.inn,
                 "is_active": item.is_active,
             },
         )
