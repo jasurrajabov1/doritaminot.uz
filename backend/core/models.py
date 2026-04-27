@@ -11,7 +11,7 @@ class Institution(models.Model):
     name = models.CharField(max_length=255)
     address = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
-    inn = models.CharField(max_length=9,unique=True, validators=[MinLengthValidator(9)], verbose_name="STIR(INN)")
+    inn = models.CharField(max_length=9,unique=False, null=True, blank=True, validators=[MinLengthValidator(9)], verbose_name="STIR(INN)")
 
     class Meta:
         ordering = ["name"]
