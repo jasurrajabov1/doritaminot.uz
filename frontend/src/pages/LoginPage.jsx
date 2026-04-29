@@ -47,10 +47,17 @@ export default function LoginPage() {
       setAuthToken(token);
 
       const currentUser = await fetchCurrentUser();
+
+      if (currentUser?.must_change_password) {
+        navigate("/change-password", { replace: true });
+        return;
+      }
+
       const allowedPages = currentUser?.allowed_pages || [];
       const nextPath = getDefaultPath(allowedPages);
 
       navigate(nextPath, { replace: true });
+
     } catch (err) {
       console.error(err);
       clearAuthToken();

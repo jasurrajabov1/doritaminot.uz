@@ -165,7 +165,9 @@ export default function AccessManagementPage() {
   if (!canViewAccessManagement) {
     return (
       <div className="page-container">
-        Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.
+        <div className="form-card section-denied-card">
+          Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.
+        </div>
       </div>
     );
   }
@@ -181,7 +183,9 @@ export default function AccessManagementPage() {
         onRefresh={loadAll}
       />
 
-      {loading ? <div className="form-card">Юкланмоқда...</div> : null}
+      {loading ? (
+        <div className="form-card section-loading-card">Юкланмоқда...</div>
+      ) : null}
 
       {!loading && activeTab === "roles" ? (
         <RolesSection

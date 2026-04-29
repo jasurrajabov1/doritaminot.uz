@@ -10,6 +10,7 @@ urlpatterns = [
     path("auth/logout/", views.LogoutAPIView.as_view(), name="auth-logout"),
     path("auth/me/", views.CurrentUserAPIView.as_view(), name="auth-me"),
     path("auth/meta/", views.AccessMetaAPIView.as_view(), name="auth-meta"),
+    path("auth/change-password/", views.SelfChangePasswordAPIView.as_view(), name="auth-change-password"),
 
     path("institutions/", views.InstitutionListCreateAPIView.as_view(), name="institutions-list"),
     path("institutions/<int:pk>/", views.InstitutionDetailAPIView.as_view(), name="institutions-detail"),

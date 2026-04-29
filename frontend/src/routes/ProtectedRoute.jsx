@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import AccessDeniedPage from "../pages/AccessDeniedPage";
 import { clearAuthToken, fetchCurrentUser } from "../api/client";
-import { getStoredCurrentUser, hasToken } from "./routeHelpers";
 import { canViewPage } from "../utils/permission";
+import { getStoredCurrentUser, hasToken, getDefaultPath } from "./routeHelpers";
 
 export default function ProtectedRoute({ children, pageCode }) {
   const [status, setStatus] = useState("checking");
+  const [currentUser, setCurrentUser] = useState(getStoredCurrentUser());
+  const location = useLocation();
 
   useEffect(() => {
     let active = true;
@@ -20,14 +22,18 @@ export default function ProtectedRoute({ children, pageCode }) {
       const storedUser = getStoredCurrentUser();
 
       if (storedUser) {
-        if (active) setStatus("ready");
+        if (active) {
+          setCurrentUser(storedUser);
+          setStatus("ready");
+        }
         return;
       }
 
       try {
-        await fetchCurrentUser();
+        const user = await fetchCurrentUser();
 
         if (active) {
+          setCurrentUser(user);
           setStatus("ready");
         }
       } catch (error) {
@@ -54,6 +60,21 @@ export default function ProtectedRoute({ children, pageCode }) {
   if (status === "no-token") {
     return <Navigate to="/login" replace />;
   }
+
+  if (
+    currentUser?.must_change_password &&
+    location.pathname !== "/change-password"
+  ) {
+    return <Navigate to="/change-password" replace />;
+  }
+
+if (
+  !currentUser?.must_change_password &&
+  location.pathname === "/change-password"
+) {
+  const nextPath = getDefaultPath(currentUser?.allowed_pages || []);
+  return <Navigate to={nextPath} replace />;
+}
 
   if (pageCode && !canViewPage(pageCode)) {
     return <AccessDeniedPage />;

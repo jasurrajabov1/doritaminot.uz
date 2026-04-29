@@ -3,7 +3,9 @@ import api from "../api/client";
 import { canDo, canViewPage } from "../utils/permission";
 
 export default function InstitutionsPage() {
+
   const canViewInstitutions = canViewPage("institutions");
+
   const canCreateInstitution = canDo("institutions", "add");
   const canUpdateInstitution = canDo("institutions", "edit");
   const canDeleteInstitution = canDo("institutions", "delete");
@@ -12,8 +14,8 @@ export default function InstitutionsPage() {
     canCreateInstitution || canUpdateInstitution || canDeleteInstitution;
 
   const [items, setItems] = useState([]);
+
   const [name, setName] = useState("");
-  const [inn, setInn] = useState("");
   const [address, setAddress] = useState("");
   const [isActive, setIsActive] = useState(true);
 
@@ -22,7 +24,6 @@ export default function InstitutionsPage() {
   const [success, setSuccess] = useState("");
 
   const [filterName, setFilterName] = useState("");
-  const [filterInn, setFilterInn] = useState("");
   const [filterActive, setFilterActive] = useState("");
 
   const compactHeaderCell = {
@@ -77,48 +78,62 @@ export default function InstitutionsPage() {
 
   const getErrorMessage = (e, fallback) => {
     const data = e?.response?.data;
+
     if (typeof data === "string" && data.trim()) return data;
     if (data?.detail) return data.detail;
+
     if (Array.isArray(data?.non_field_errors) && data.non_field_errors[0]) {
       return data.non_field_errors[0];
     }
-    const firstField = data && typeof data === "object" ? Object.keys(data)[0] : null;
+
+    const firstField =
+      data && typeof data === "object" ? Object.keys(data)[0] : null;
+
     if (firstField && Array.isArray(data[firstField]) && data[firstField][0]) {
       return `${firstField}: ${data[firstField][0]}`;
     }
+
+    if (firstField && typeof data[firstField] === "string") {
+      return `${firstField}: ${data[firstField]}`;
+    }
+
     return fallback;
   };
 
-  const load = useCallback(async () => {
-    try {
-      const res = await api.get("/institutions/");
+const load = useCallback(async () => {
+  try {
+    const res = await api.get("/institutions/");
+    setItems(toArray(res.data));
+    setError("");
+  } catch (e) {
+    console.error(e);
+    setError(getErrorMessage(e, "Рўйхатни юклашда хато бўлди."));
+  }
+}, []);
+
+useEffect(() => {
+  let active = true;
+
+  api
+    .get("/institutions/")
+    .then((res) => {
+      if (!active) return;
       setItems(toArray(res.data));
       setError("");
-    } catch (e) {
+    })
+    .catch((e) => {
       console.error(e);
+      if (!active) return;
       setError(getErrorMessage(e, "Рўйхатни юклашда хато бўлди."));
-    }
-  }, []);
+    });
 
-  useEffect(() => {
-    let active = true;
-    api.get("/institutions/")
-      .then((res) => {
-        if (!active) return;
-        setItems(toArray(res.data));
-        setError("");
-      })
-      .catch((e) => {
-        console.error(e);
-        if (!active) return;
-        setError(getErrorMessage(e, "Рўйхатни юклашда хато бўлди."));
-      });
-    return () => { active = false; };
-  }, []);
+  return () => {
+    active = false;
+  };
+}, []);
 
   const resetForm = () => {
     setName("");
-    setInn("");
     setAddress("");
     setIsActive(true);
     setEditingId(null);
@@ -130,17 +145,16 @@ export default function InstitutionsPage() {
     setSuccess("");
     setEditingId(item.id);
     setName(item.name || "");
-    setInn(item.inn || "");
     setAddress(item.address || "");
     setIsActive(Boolean(item.is_active));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const buildPayload = () => {
-    if (!name.trim() || !inn.trim()) return null;
+    if (!name.trim()) return null;
+
     return {
       name: name.trim(),
-      inn: inn.trim(),
       address: address.trim(),
       is_active: isActive,
     };
@@ -150,16 +164,20 @@ export default function InstitutionsPage() {
     try {
       setError("");
       setSuccess("");
+
       const payload = buildPayload();
       if (!payload) {
-        setError("Номи ва СТИР мажбурий.");
+        setError("Номи мажбурий.");
         return;
       }
+
       await api.post("/institutions/", payload);
+
       resetForm();
       setSuccess("Муассаса қўшилди.");
       await load();
     } catch (e) {
+      console.error(e);
       setError(getErrorMessage(e, "Қўшишда хато бўлди."));
     }
   };
@@ -168,17 +186,25 @@ export default function InstitutionsPage() {
     try {
       setError("");
       setSuccess("");
-      if (!editingId) return;
-      const payload = buildPayload();
-      if (!payload) {
-        setError("Номи ва СТИР мажбурий.");
+
+      if (!editingId) {
+        setError("Таҳрирланаётган ёзув топилмади.");
         return;
       }
+
+      const payload = buildPayload();
+      if (!payload) {
+        setError("Номи мажбурий.");
+        return;
+      }
+
       await api.patch(`/institutions/${editingId}/`, payload);
+
       resetForm();
       setSuccess("Муассаса янгиланди.");
       await load();
     } catch (e) {
+      console.error(e);
       setError(getErrorMessage(e, "Сақлашда хато бўлди."));
     }
   };
@@ -189,7 +215,9 @@ export default function InstitutionsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Ростдан ҳам ўчирмоқчимисиз?")) return;
+    const ok = window.confirm("Ростдан ҳам ўчирмоқчимисиз?");
+    if (!ok) return;
+
     try {
       setError("");
       setSuccess("");
@@ -197,7 +225,8 @@ export default function InstitutionsPage() {
       setSuccess("Муассаса ўчирилди.");
       await load();
     } catch (e) {
-      setError(getErrorMessage(e, "Ўчиришда хатолик юз берди."));
+      console.error(e);
+      setError(getErrorMessage(e, "Муассасани ўчиришда хатолик юз берди."));
     }
   };
 
@@ -205,80 +234,165 @@ export default function InstitutionsPage() {
     try {
       setError("");
       setSuccess("");
-      await api.patch(`/institutions/${item.id}/`, { is_active: !item.is_active });
-      setItems((prev) => prev.map((x) => Number(x.id) === Number(item.id) ? { ...x, is_active: !x.is_active } : x));
-      if (Number(editingId) === Number(item.id)) setIsActive(!item.is_active);
-      setSuccess(!item.is_active ? "Муассаса фаол қилинди." : "Муассаса нофаол қилинди.");
+
+      await api.patch(`/institutions/${item.id}/`, {
+        is_active: !item.is_active,
+      });
+
+      setItems((prev) =>
+        prev.map((x) =>
+          Number(x.id) === Number(item.id)
+            ? { ...x, is_active: !x.is_active }
+            : x
+        )
+      );
+
+      if (Number(editingId) === Number(item.id)) {
+        setIsActive(!item.is_active);
+      }
+
+      setSuccess(
+        !item.is_active
+          ? "Муассаса фаол қилинди."
+          : "Муассаса нофаол қилинди."
+      );
     } catch (e) {
-      setError(getErrorMessage(e, "Хатолик юз берди."));
+      console.error(e);
+      setError(getErrorMessage(e, "Фаол/нофаол қилишда хато бўлди."));
     }
   };
 
   const filteredItems = useMemo(() => {
     return items
       .filter((item) => {
-        const byName = filterName.trim() ? String(item.name || "").toLowerCase().includes(filterName.trim().toLowerCase()) : true;
-        const byInn = filterInn.trim() ? String(item.inn || "").includes(filterInn.trim()) : true;
-        const byActive = filterActive === "" ? true : filterActive === "true" ? item.is_active === true : item.is_active === false;
-        return byName && byInn && byActive;
+        const byName = filterName.trim()
+          ? String(item.name || "")
+              .toLowerCase()
+              .includes(filterName.trim().toLowerCase())
+          : true;
+
+        const byActive =
+          filterActive === ""
+            ? true
+            : filterActive === "true"
+            ? item.is_active === true
+            : item.is_active === false;
+
+        return byName && byActive;
       })
       .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  }, [items, filterName, filterInn, filterActive]);
+  }, [items, filterName, filterActive]);
 
-  if (!canViewInstitutions) return <div className="page-container">Рухсат йўқ.</div>;
+  const isEditMode = editingId !== null;
+
+  if (!canViewInstitutions) {
+    return <div className="page-container">Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.</div>;
+  }
 
   return (
     <div className="page-container">
       <h2>Муассасалар</h2>
-      {!canManageInstitutions && <p style={{ color: "#475569" }}>Фақат кўриш ҳуқуқи.</p>}
-      {error && <p style={{ color: "#dc2626" }}>{error}</p>}
-      {success && <p style={{ color: "#166534" }}>{success}</p>}
 
-      {canManageInstitutions && (
+      {!canManageInstitutions ? (
+        <p style={{ color: "#475569" }}>
+          Сизда ушбу саҳифада фақат кўриш ҳуқуқи бор.
+        </p>
+      ) : null}
+
+      {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
+      {success ? <p style={{ color: "#166534" }}>{success}</p> : null}
+
+      {canManageInstitutions ? (
         <div className="form-card">
           <div className="form-row">
-            <input placeholder="Номи" value={name} onChange={(e) => setName(e.target.value)} />
-            <input placeholder="СТИР (ИНН)" value={inn} onChange={(e) => setInn(e.target.value)} />
-            <input placeholder="Манзил" value={address} onChange={(e) => setAddress(e.target.value)} />
-            {!editingId ? (
-              canCreateInstitution && <button className="primary" onClick={handleAdd}>Қўшиш</button>
+            <input
+              placeholder="Номи"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+
+            <input
+              placeholder="Манзил"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+
+            {!isEditMode ? (
+              canCreateInstitution ? (
+                <button className="primary" type="button" onClick={handleAdd}>
+                  Қўшиш
+                </button>
+              ) : null
             ) : (
               <>
-                {canUpdateInstitution && <button className="primary" onClick={handleSave}>Сақлаш</button>}
-                <button onClick={handleCancel}>Бекор қилиш</button>
+                {canUpdateInstitution ? (
+                  <button className="primary" type="button" onClick={handleSave}>
+                    Сақлаш
+                  </button>
+                ) : null}
+                <button type="button" onClick={handleCancel}>
+                  Бекор қилиш
+                </button>
               </>
             )}
           </div>
+
           <div className="checkbox-row">
-            <input id="inst-active" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-            <label htmlFor="inst-active">Фаол</label>
+            <input
+              id="institution-active"
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+            />
+            <label htmlFor="institution-active">Фаол</label>
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="form-card" style={{ marginTop: "16px" }}>
         <div className="filter-row">
-          <input placeholder="Фильтр: номи" value={filterName} onChange={(e) => setFilterName(e.target.value)} />
-          <input placeholder="Фильтр: СТИР" value={filterInn} onChange={(e) => setFilterInn(e.target.value)} />
-          <select value={filterActive} onChange={(e) => setFilterActive(e.target.value)}>
+          <input
+            placeholder="Фильтр: номи"
+            value={filterName}
+            onChange={(e) => setFilterName(e.target.value)}
+          />
+
+          <select
+            value={filterActive}
+            onChange={(e) => setFilterActive(e.target.value)}
+          >
             <option value="">Барчаси</option>
             <option value="true">Фаол</option>
             <option value="false">Нофаол</option>
           </select>
-          <button onClick={() => { setFilterName(""); setFilterInn(""); setFilterActive(""); }}>Тозалаш</button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setFilterName("");
+              setFilterActive("");
+            }}
+          >
+            Тозалаш
+          </button>
         </div>
       </div>
 
       <div className="table-wrap">
-        <table className="grid-table" style={{ width: "100%" }}>
+        <table
+          className="grid-table"
+          style={{
+            width: "100%",
+            tableLayout: "auto",
+          }}
+        >
           <thead>
             <tr>
               <th style={compactHeaderCell}>ИД</th>
-              <th style={compactHeaderCell}>СТИР</th>
               <th style={compactHeaderCell}>Номи</th>
               <th style={compactHeaderCell}>Манзил</th>
               <th style={compactHeaderCell}>Фаол</th>
-              {canManageInstitutions && <th style={compactHeaderCell}>Амал</th>}
+              {canManageInstitutions ? <th style={compactHeaderCell}>Амал</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -286,23 +400,52 @@ export default function InstitutionsPage() {
               filteredItems.map((item) => (
                 <tr key={item.id}>
                   <td style={nowrapCell}>{item.id}</td>
-                  <td style={nowrapCell}>{item.inn}</td>
                   <td style={wrapCell}>{item.name}</td>
                   <td style={wrapCell}>{item.address || ""}</td>
                   <td style={nowrapCell}>{item.is_active ? "Ҳа" : "Йўқ"}</td>
-                  {canManageInstitutions && (
+
+                  {canManageInstitutions ? (
                     <td style={actionCellStyle}>
-                      <div className="actions-cell" style={{ gap: "6px", display: "flex" }}>
-                        {canUpdateInstitution && <button style={actionButtonStyle} onClick={() => startEdit(item)}>Таҳрир</button>}
-                        {canUpdateInstitution && <button style={actionButtonStyle} onClick={() => toggleActive(item)}>{item.is_active ? "Нофаол" : "Фаол"}</button>}
-                        {canDeleteInstitution && <button style={actionButtonStyle} onClick={() => handleDelete(item.id)}>Ўчириш</button>}
+                      <div className="actions-cell" style={{ gap: "6px", flexWrap: "wrap" }}>
+                        {canUpdateInstitution ? (
+                          <button
+                            type="button"
+                            style={actionButtonStyle}
+                            onClick={() => startEdit(item)}
+                          >
+                            Таҳрирлаш
+                          </button>
+                        ) : null}
+
+                        {canUpdateInstitution ? (
+                          <button
+                            type="button"
+                            style={actionButtonStyle}
+                            onClick={() => toggleActive(item)}
+                          >
+                            {item.is_active ? "Нофаол қилиш" : "Фаол қилиш"}
+                          </button>
+                        ) : null}
+
+                        {canDeleteInstitution ? (
+                          <button
+                            type="button"
+                            style={actionButtonStyle}
+                            onClick={() => handleDelete(item.id)}
+                          >
+                            Ўчириш
+                          </button>
+                        ) : null}
                       </div>
                     </td>
-                  )}
+                  ) : null}
+                  
                 </tr>
               ))
             ) : (
-              <tr><td colSpan="6" style={compactCell}>Маълумот йўқ</td></tr>
+              <tr>
+                <td colSpan="5" style={compactCell}>Маълумот йўқ</td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -310,3 +453,6 @@ export default function InstitutionsPage() {
     </div>
   );
 }
+
+
+

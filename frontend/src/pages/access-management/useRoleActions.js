@@ -1,12 +1,6 @@
 import api from "../../api/client";
 import { extractError } from "./helpers";
 
-const PROTECTED_ROLE_NAMES = ["Админ", "Оператор", "Кузатувчи"];
-
-function isProtectedRole(role) {
-  return PROTECTED_ROLE_NAMES.includes(String(role?.name || "").trim());
-}
-
 export default function useRoleActions({
   roleForm,
   editingRoleId,
@@ -61,12 +55,6 @@ export default function useRoleActions({
   };
 
   const handleRoleEdit = (role) => {
-    if (isProtectedRole(role)) {
-      setSuccess("");
-      setError(`"${role.name}" стандарт роль. Уни бу ердан таҳрирлаш мумкин эмас.`);
-      return;
-    }
-
     setSuccess("");
     setError("");
     setEditingRoleId(role.id);
@@ -80,12 +68,6 @@ export default function useRoleActions({
   };
 
   const handleRoleDelete = async (role) => {
-    if (isProtectedRole(role)) {
-      setSuccess("");
-      setError(`"${role.name}" стандарт роль. Уни ўчириш мумкин эмас.`);
-      return;
-    }
-
     const ok = window.confirm(`"${role.name}" ролини ўчирмоқчимисиз?`);
     if (!ok) return;
 

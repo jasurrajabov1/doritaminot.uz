@@ -203,6 +203,15 @@ export default function DashboardPage() {
         drugs: toNumber(serverCards.drugs),
         need_rows: toNumber(serverCards.need_rows),
         issued_rows: toNumber(serverCards.issued_rows),
+
+        total_need_qty: toNumber(serverCards.total_need_qty),
+        total_issued_qty: toNumber(serverCards.total_issued_qty),
+        total_remaining_qty: toNumber(serverCards.total_remaining_qty),
+
+        total_need_sum: toNumber(serverCards.total_need_sum),
+        total_issued_sum: toNumber(serverCards.total_issued_sum),
+        total_remaining_sum: toNumber(serverCards.total_remaining_sum),
+
         critical_positions: toNumber(serverCards.critical_positions),
         over_need: toNumber(serverCards.over_need),
       });
@@ -262,6 +271,48 @@ export default function DashboardPage() {
         visible: canViewPage("monthly_issues"),
       },
       {
+        title: "Жами йиллик эҳтиёж",
+        value: formatNumber(cards.total_need_qty),
+        hint: "Миқдор бўйича",
+        path: "/need-rows-summary",
+        visible: canViewPage("need_rows_summary"),
+      },
+      {
+        title: "Жами берилган миқдор",
+        value: formatNumber(cards.total_issued_qty),
+        hint: "Миқдор бўйича",
+        path: "/monthly-issues",
+        visible: canViewPage("monthly_issues"),
+      },
+      {
+        title: "Жами қолдиқ",
+        value: formatNumber(cards.total_remaining_qty),
+        hint: "Миқдор бўйича",
+        path: "/stock-summary",
+        visible: canViewPage("stock_summary"),
+      },
+      {
+        title: "Жами йиллик сумма",
+        value: formatNumber(cards.total_need_sum),
+        hint: "Сўмда",
+        path: "/need-rows-summary",
+        visible: canViewPage("need_rows_summary"),
+      },
+      {
+        title: "Жами берилган сумма",
+        value: formatNumber(cards.total_issued_sum),
+        hint: "Сўмда",
+        path: "/need-rows-summary",
+        visible: canViewPage("need_rows_summary"),
+      },
+      {
+        title: "Жами қолдиқ сумма",
+        value: formatNumber(cards.total_remaining_sum),
+        hint: "Сўмда",
+        path: "/need-rows-summary",
+        visible: canViewPage("need_rows_summary"),
+      },
+      {
         title: "Критик позициялар",
         value: formatNumber(cards.critical_positions),
         hint: "Назорат талаб қилади",
@@ -271,7 +322,7 @@ export default function DashboardPage() {
       {
         title: "Эҳтиёждан ошган",
         value: formatNumber(cards.over_need),
-        hint: "Шошилинч текшириш",
+        hint: "Ошиқча берилган",
         path: "/stock-summary",
         visible: canViewPage("stock_summary"),
       },
@@ -460,9 +511,8 @@ export default function DashboardPage() {
             value={selectedYear}
             onChange={(e) => setSelectedYear(e.target.value)}
           >
-            <option value="">Барча йиллар</option>
-            {years.map((year) => (
-              <option key={year} value={year}>
+            {Array.from(new Set(years)).map((year) => (
+              <option key={`year-${year}`} value={year}>
                 {year}
               </option>
             ))}

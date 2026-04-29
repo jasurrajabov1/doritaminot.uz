@@ -202,6 +202,25 @@ export default function UsersSection({
                 ))}
               </select>
             </div>
+
+            <div>
+              <label style={labelStyle}>Пароль сиёсати</label>
+              <select
+                value={userForm.password_policy || "medium"}
+                onChange={(e) =>
+                  setUserForm((prev) => ({
+                    ...prev,
+                    password_policy: e.target.value,
+                  }))
+                }
+                style={inputStyle}
+              >
+                <option value="simple">Оддий</option>
+                <option value="medium">Ўртача</option>
+                <option value="strong">Кучли</option>
+              </select>
+            </div>
+
           </div>
 
           <div
@@ -252,6 +271,26 @@ export default function UsersSection({
                 }
               />
               Staff
+            </label>
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "14px",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={!!userForm.must_change_password}
+                onChange={(e) =>
+                  setUserForm((prev) => ({
+                    ...prev,
+                    must_change_password: e.target.checked,
+                  }))
+                }
+              />
+              Биринчи киришда парольни алмаштирсин
             </label>
           </div>
 
@@ -310,6 +349,44 @@ export default function UsersSection({
                   style={inputStyle}
                 />
               </div>
+              <div>
+                <label style={labelStyle}>Пароль сиёсати</label>
+                <select
+                  value={passwordTarget?.password_policy || "medium"}
+                  onChange={(e) =>
+                    setPasswordTarget((prev) => ({
+                      ...prev,
+                      password_policy: e.target.value,
+                    }))
+                  }
+                  style={inputStyle}
+                >
+                  <option value="simple">Оддий</option>
+                  <option value="medium">Ўртача</option>
+                  <option value="strong">Кучли</option>
+                </select>
+              </div>
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  fontSize: "14px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!passwordTarget?.must_change_password}
+                  onChange={(e) =>
+                    setPasswordTarget((prev) => ({
+                      ...prev,
+                      must_change_password: e.target.checked,
+                    }))
+                  }
+                />
+                Биринчи киришда парольни алмаштирсин
+              </label>
+
             </div>
 
             <div
@@ -361,6 +438,8 @@ export default function UsersSection({
                 <th style={thStyle}>ФИШ</th>
                 <th style={thStyle}>Email</th>
                 <th style={thStyle}>Роль</th>
+                <th style={thStyle}>Пароль сиёсати</th>
+                <th style={thStyle}>Мажбурий алмаштириш</th>
                 <th style={thStyle}>Фаол</th>
                 <th style={thStyle}>Staff</th>
                 <th style={thStyle}>Superuser</th>
@@ -377,6 +456,14 @@ export default function UsersSection({
                     <td style={tdStyle}>{item.full_name || item.username}</td>
                     <td style={tdStyle}>{item.email || "—"}</td>
                     <td style={tdStyle}>{item.role?.name || "Ролсиз"}</td>
+                    <td style={tdStyle}>
+                      {item.password_policy === "simple"
+                        ? "Оддий"
+                        : item.password_policy === "strong"
+                        ? "Кучли"
+                        : "Ўртача"}
+                    </td>
+                    <td style={tdStyle}>{yesNo(item.must_change_password)}</td>
                     <td style={tdStyle}>{yesNo(item.is_active)}</td>
                     <td style={tdStyle}>{yesNo(item.is_staff)}</td>
                     <td style={tdStyle}>{yesNo(item.is_superuser)}</td>
@@ -453,7 +540,7 @@ export default function UsersSection({
               })}
               {users.length === 0 ? (
                 <tr>
-                  <td style={tdStyle} colSpan="9">
+                  <td style={tdStyle} colSpan="11">
                     Фойдаланувчилар топилмади.
                   </td>
                 </tr>

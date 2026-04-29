@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 
 import LoginPage from "./pages/LoginPage";
@@ -6,17 +6,18 @@ import AccessDeniedPage from "./pages/AccessDeniedPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import { PAGE_REGISTRY } from "./pages/pageRegistry";
 
-import { getStoredCurrentUser } from "./routes/routeHelpers";
+import { getStoredCurrentUser, getDefaultPath } from "./routes/routeHelpers";
 import MenuLink from "./routes/MenuLink";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import PublicOnlyRoute from "./routes/PublicOnlyRoute";
-
+import MustChangePasswordPage from "./pages/MustChangePasswordPage";
 import { canViewPage } from "./utils/permission";
 
 import api, { clearAuthToken, fetchCurrentUser } from "./api/client";
 
 function AppLayout() {
   const [currentUser, setCurrentUser] = useState(getStoredCurrentUser());
+  const isChangePasswordPage = window.location.pathname === "/change-password";
 
   useEffect(() => {
     let isMounted = true;
@@ -35,6 +36,7 @@ function AppLayout() {
     }
 
     loadMe();
+
 
     return () => {
       isMounted = false;
@@ -56,52 +58,51 @@ const handleLogout = async () => {
     return canViewPage(pageCode);
   }
 
+const defaultPath = getDefaultPath(currentUser?.allowed_pages || []);
+  
   return (
     <>
-      <div className="topbar">
-        {PAGE_REGISTRY.filter((item) => canView(item.code)).map((item) => (
-          <MenuLink key={item.code} to={item.path}>
-            {item.label}
-          </MenuLink>
-        ))}
+      {!isChangePasswordPage && (
+        <div className="topbar">
+          {PAGE_REGISTRY.filter((item) => canView(item.code)).map((item) => (
+            <MenuLink key={item.code} to={item.path}>
+              {item.label}
+            </MenuLink>
+          ))}
 
-        <span className="app-title">
-          {currentUser?.username ? currentUser.username : "pharm_demand_system"}
-        </span>
+          <div className="topbar-user">
+            <span className="topbar-username">
+              {currentUser?.username ? currentUser.username : "pharm_demand_system"}
+            </span>
 
-        <button
-          type="button"
-          onClick={handleLogout}
-          style={{
-            marginLeft: "8px",
-            border: "1px solid #cbd5e1",
-            background: "#fff",
-            color: "#0f172a",
-            padding: "8px 12px",
-            borderRadius: "10px",
-            cursor: "pointer",
-          }}
-        >
-          Чиқиш
-        </button>
-      </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="topbar-logout"
+              >
+              Чиқиш
+            </button>
+          </div>
+        </div>
+      )}
 
       <Routes>
+        <Route index element={<Navigate to={defaultPath} replace />} />
         {PAGE_REGISTRY.map((item) => {
           const PageComponent = item.component;
-
+          
           return (
             <Route
-              key={item.code}
-              path={item.path}
-              element={
-                <ProtectedRoute pageCode={item.code}>
+            key={item.code}
+            path={item.path}
+            element={
+              <ProtectedRoute pageCode={item.code}>
                   <PageComponent />
                 </ProtectedRoute>
               }
-            />
-          );
-        })}
+              />
+            );
+          })}
 
 
         <Route
@@ -111,9 +112,17 @@ const handleLogout = async () => {
               <AccessDeniedPage />
             </ProtectedRoute>
           }
-        />
+          />
 
         <Route path="*" element={<NotFoundPage />} />
+        <Route
+          path="/change-password"
+          element={
+            <ProtectedRoute>
+              <MustChangePasswordPage />
+            </ProtectedRoute>
+          }
+          />
       </Routes>
     </>
   );

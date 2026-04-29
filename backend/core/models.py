@@ -4,14 +4,12 @@ from django.conf import settings
 from django.db import models
 
 from .constants import PAGE_CHOICES
-from django.core.validators import MinLengthValidator, MaxLengthValidator
 
 
 class Institution(models.Model):
     name = models.CharField(max_length=255)
     address = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
-    inn = models.CharField(max_length=9,unique=False, null=True, blank=True, validators=[MinLengthValidator(9)], verbose_name="STIR(INN)")
 
     class Meta:
         ordering = ["name"]
@@ -64,7 +62,7 @@ class NeedRow(models.Model):
     )
     drug = models.ForeignKey(
         Drug,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="need_rows",
     )
     year = models.PositiveIntegerField()
@@ -151,6 +149,19 @@ class UserProfile(models.Model):
         blank=True,
         null=True,
     )
+    PASSWORD_POLICY_CHOICES = [
+        ("simple", "Simple"),
+        ("medium", "Medium"),
+        ("strong", "Strong"),
+    ]
+
+    password_policy = models.CharField(
+        max_length=20,
+        choices=PASSWORD_POLICY_CHOICES,
+        default="medium",
+    )
+    must_change_password = models.BooleanField(default=False)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

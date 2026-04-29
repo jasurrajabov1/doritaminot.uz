@@ -61,10 +61,6 @@ export default function NeedRowsSummaryPage() {
   const canExportNeedRowsSummary = canDo("need_rows_summary", "export");
   const canPrintNeedRowsSummary = canDo("need_rows_summary", "print");
 
-  const canManageNeedRowsSummary =
-    canExportNeedRowsSummary || canPrintNeedRowsSummary;
-
-
   const [rows, setRows] = useState([]);
   const [years, setYears] = useState([]);
   const [institutions, setInstitutions] = useState([]);
@@ -83,23 +79,34 @@ export default function NeedRowsSummaryPage() {
       setLoadingFilters(true);
       setError("");
 
-      const [needRowsRes, institutionsRes, drugsRes] = await Promise.all([
+      const [needRowsRes, institutionsRes, drugsRes] = await Promise.allSettled([
         api.get("/need-rows/"),
         api.get("/institutions/"),
         api.get("/drugs/"),
       ]);
 
-      const needRows = toArray(needRowsRes.data);
+      const needRows =
+        needRowsRes.status === "fulfilled" ? toArray(needRowsRes.value.data) : [];
+
       const yearList = [...new Set(needRows.map((item) => item.year))]
         .filter(Boolean)
         .sort((a, b) => Number(a) - Number(b));
 
       setYears(yearList);
-      setInstitutions(toArray(institutionsRes.data));
-      setDrugs(toArray(drugsRes.data));
+
+      setInstitutions(
+        institutionsRes.status === "fulfilled"
+          ? toArray(institutionsRes.value.data)
+          : []
+      );
+
+      setDrugs(
+        drugsRes.status === "fulfilled"
+          ? toArray(drugsRes.value.data)
+          : []
+      );
     } catch (e) {
       console.error(e);
-      setError(extractError(e, "Фильтрларни юклашда хатолик юз берди."));
     } finally {
       setLoadingFilters(false);
     }
@@ -488,12 +495,6 @@ export default function NeedRowsSummaryPage() {
       <style>{printStyles}</style>
 
       <h2>Эҳтиёжлар сводкаси</h2>
-
-      {!canManageNeedRowsSummary ? (
-        <p style={{ color: "#475569" }}>
-          Сизда ушбу саҳифада фақат кўриш ҳуқуқи бор.
-        </p>
-      ) : null}
 
       {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
 

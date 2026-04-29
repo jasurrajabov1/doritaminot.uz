@@ -1,8 +1,6 @@
 from decimal import Decimal
 
 from django.contrib.auth import authenticate, get_user_model
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import DecimalField, Sum, Value
 from django.db.models.functions import Coalesce
 from rest_framework import serializers
@@ -24,6 +22,47 @@ from .permissions import resolve_user_page_permissions, resolve_user_role
 
 User = get_user_model()
 
+def validate_password_by_policy(password, policy):
+    policy = policy or "medium"
+
+    if policy == "simple":
+        if len(password) < 4:
+            raise serializers.ValidationError(
+                "Simple пароль камида 4 белгидан иборат бўлиши керак."
+            )
+        return password
+
+    if policy == "medium":
+        if len(password) < 6:
+            raise serializers.ValidationError(
+                "Medium пароль камида 6 белгидан иборат бўлиши керак."
+            )
+        if not any(ch.isalpha() for ch in password) or not any(ch.isdigit() for ch in password):
+            raise serializers.ValidationError(
+                "Medium парольда камида 1 та ҳарф ва 1 та рақам бўлиши керак."
+            )
+        return password
+
+    if policy == "strong":
+        if len(password) < 8:
+            raise serializers.ValidationError(
+                "Strong пароль камида 8 белгидан иборат бўлиши керак."
+            )
+        if not any(ch.islower() for ch in password):
+            raise serializers.ValidationError(
+                "Strong парольда камида 1 та кичик ҳарф бўлиши керак."
+            )
+        if not any(ch.isupper() for ch in password):
+            raise serializers.ValidationError(
+                "Strong парольда камида 1 та катта ҳарф бўлиши керак."
+            )
+        if not any(ch.isdigit() for ch in password):
+            raise serializers.ValidationError(
+                "Strong парольда камида 1 та рақам бўлиши керак."
+            )
+        return password
+
+    raise serializers.ValidationError("Номаълум пароль сиёсати.")
 
 class InstitutionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -456,6 +495,8 @@ class UserRoleMixin:
 class ManagedUserSerializer(UserRoleMixin, serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
     full_name = serializers.SerializerMethodField()
+    password_policy = serializers.SerializerMethodField()
+    must_change_password = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -470,12 +511,32 @@ class ManagedUserSerializer(UserRoleMixin, serializers.ModelSerializer):
             "is_staff",
             "is_superuser",
             "role",
+            "password_policy",
+            "must_change_password",
         ]
+    def get_password_policy(self, obj):
+        profile, _created = UserProfile.objects.get_or_create(user=obj)
+        return profile.password_policy
+
+    def get_must_change_password(self, obj):
+        profile, _created = UserProfile.objects.get_or_create(user=obj)
+        return profile.must_change_password
 
 
 class ManagedUserCreateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, trim_whitespace=False)
     role_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    password_policy = serializers.ChoiceField(
+        choices=UserProfile.PASSWORD_POLICY_CHOICES,
+        required=False,
+        default="medium",
+        write_only=True,
+    )
+    must_change_password = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+    )
 
     class Meta:
         model = User
@@ -489,6 +550,8 @@ class ManagedUserCreateSerializer(serializers.ModelSerializer):
             "is_active",
             "is_staff",
             "role_id",
+            "password_policy",
+            "must_change_password",
         ]
         read_only_fields = ["id"]
 
@@ -500,25 +563,36 @@ class ManagedUserCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_password(self, value):
-        try:
-            validate_password(value)
-        except DjangoValidationError as exc:
-            raise serializers.ValidationError(list(exc.messages)) from exc
-        return value
+        policy = self.initial_data.get("password_policy", "medium")
+        return validate_password_by_policy(value, policy)
 
     def create(self, validated_data):
         role_id = validated_data.pop("role_id", None)
         password = validated_data.pop("password")
+        password_policy = validated_data.pop("password_policy", "medium")
+        must_change_password = validated_data.pop("must_change_password", False)
+
         user = User.objects.create_user(password=password, **validated_data)
 
         profile, _created = UserProfile.objects.get_or_create(user=user)
         profile.role = Role.objects.filter(id=role_id).first() if role_id else None
+        profile.password_policy = password_policy
+        profile.must_change_password = must_change_password
         profile.save()
-        return user
 
+        return user
 
 class ManagedUserUpdateSerializer(serializers.ModelSerializer):
     role_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    password_policy = serializers.ChoiceField(
+        choices=UserProfile.PASSWORD_POLICY_CHOICES,
+        required=False,
+        write_only=True,
+    )
+    must_change_password = serializers.BooleanField(
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = User
@@ -529,6 +603,8 @@ class ManagedUserUpdateSerializer(serializers.ModelSerializer):
             "is_active",
             "is_staff",
             "role_id",
+            "password_policy",
+            "must_change_password",
         ]
 
     def validate_role_id(self, value):
@@ -540,35 +616,69 @@ class ManagedUserUpdateSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         role_id = validated_data.pop("role_id", serializers.empty)
+        password_policy = validated_data.pop("password_policy", serializers.empty)
+        must_change_password = validated_data.pop("must_change_password", serializers.empty)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        if role_id is not serializers.empty:
-            profile, _created = UserProfile.objects.get_or_create(user=instance)
-            profile.role = Role.objects.filter(id=role_id).first() if role_id else None
-            profile.save()
+        profile, _created = UserProfile.objects.get_or_create(user=instance)
 
+        if role_id is not serializers.empty:
+            profile.role = Role.objects.filter(id=role_id).first() if role_id else None
+
+        if password_policy is not serializers.empty:
+            profile.password_policy = password_policy
+
+        if must_change_password is not serializers.empty:
+            profile.must_change_password = must_change_password
+
+        profile.save()
         return instance
 
 
 class AdminSetPasswordSerializer(serializers.Serializer):
     new_password = serializers.CharField(write_only=True, trim_whitespace=False)
+    password_policy = serializers.ChoiceField(
+        choices=UserProfile.PASSWORD_POLICY_CHOICES,
+        required=False,
+        default="medium",
+        write_only=True,
+    )
+    must_change_password = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+    )
 
     def validate_new_password(self, value):
-        try:
-            validate_password(value)
-        except DjangoValidationError as exc:
-            raise serializers.ValidationError(list(exc.messages)) from exc
+        policy = self.initial_data.get("password_policy", "medium")
+        return validate_password_by_policy(value, policy)
+    
+class SelfChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True, trim_whitespace=False)
+    new_password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate_old_password(self, value):
+        user = self.context["request"].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Жорий пароль нотўғри.")
         return value
 
+    def validate_new_password(self, value):
+        user = self.context["request"].user
+        profile, _created = UserProfile.objects.get_or_create(user=user)
+        return validate_password_by_policy(value, profile.password_policy)
 
 class CurrentUserSerializer(UserRoleMixin, serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
     full_name = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
     allowed_pages = serializers.SerializerMethodField()
+
+    password_policy = serializers.SerializerMethodField()
+    must_change_password = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -585,6 +695,8 @@ class CurrentUserSerializer(UserRoleMixin, serializers.ModelSerializer):
             "role",
             "permissions",
             "allowed_pages",
+            "password_policy",
+            "must_change_password",
         ]
 
     def get_permissions(self, obj):
@@ -600,6 +712,14 @@ class CurrentUserSerializer(UserRoleMixin, serializers.ModelSerializer):
             elif values.get("view"):
                 allowed_pages.append(page_code)
         return allowed_pages
+    
+    def get_password_policy(self, obj):
+        profile, _created = UserProfile.objects.get_or_create(user=obj)
+        return profile.password_policy
+
+    def get_must_change_password(self, obj):
+        profile, _created = UserProfile.objects.get_or_create(user=obj)
+        return profile.must_change_password
 
 
 class LoginSerializer(serializers.Serializer):

@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import JsonResponse
@@ -42,20 +43,14 @@ from .serializers import (
     PriceSerializer,
     RoleSerializer,
     UserPagePermissionOverrideSerializer,
+    SelfChangePasswordSerializer,
 )
 
 User = get_user_model()
 
-PROTECTED_ROLE_NAMES = {"Админ", "Оператор", "Кузатувчи"}
-
-
-def is_protected_role(role):
-    return str(getattr(role, "name", "")).strip() in PROTECTED_ROLE_NAMES
-
 
 def dec_zero_3():
     return Value(0, output_field=DecimalField(max_digits=14, decimal_places=3))
-
 
 
 def get_issued_total(
@@ -103,6 +98,56 @@ def get_status(total_need, issued_total, remaining_percent):
 
 def protected_delete_response(message):
     return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+
+ACCESS_MANAGEMENT_PAGE_CODE = "access_management"
+
+
+def user_has_manage_access(user):
+    if not user or not user.is_active:
+        return False
+
+    if user.is_superuser:
+        return True
+
+    try:
+        profile = user.profile
+    except UserProfile.DoesNotExist:
+        profile = None
+
+    role = profile.role if profile else None
+
+    role_allowed = False
+    if role and role.is_active:
+        role_allowed = PagePermission.objects.filter(
+            role=role,
+            page_code=ACCESS_MANAGEMENT_PAGE_CODE,
+            can_manage_access=True,
+        ).exists()
+
+    override = UserPagePermissionOverride.objects.filter(
+        user=user,
+        page_code=ACCESS_MANAGEMENT_PAGE_CODE,
+    ).first()
+
+    if override and override.can_manage_access is not None:
+        return bool(override.can_manage_access)
+
+    return bool(role_allowed)
+
+
+def active_manage_access_users_count():
+    return sum(
+        1
+        for user in User.objects.filter(is_active=True).select_related("profile__role")
+        if user_has_manage_access(user)
+    )
+
+
+def ensure_manage_access_remains():
+    if active_manage_access_users_count() <= 0:
+        raise serializers.ValidationError({
+            "detail": "Тизимда камида битта фаол manage_access ҳуқуқига эга фойдаланувчи қолиши керак."
+        })
 
 def write_audit_log(actor, action, target=None, target_type=None, description=None, extra_data=None):
     resolved_target_type = target_type or (target.__class__.__name__ if target else "Unknown")
@@ -246,7 +291,6 @@ class InstitutionDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             extra_data={
                 "name": item.name,
                 "address": item.address,
-                "inn": item.inn,
                 "is_active": item.is_active,
             },
         )
@@ -771,8 +815,8 @@ class DashboardSummaryAPIView(APIView):
             need_rows_qs = need_rows_qs.filter(institution_id=selected_institution)
             monthly_issues_qs = monthly_issues_qs.filter(institution_id=selected_institution)
 
-        total_institutions = Institution.objects.count()
-        total_drugs = Drug.objects.count()
+        total_institutions = need_rows_qs.values("institution_id").distinct().count()
+        total_drugs = need_rows_qs.values("drug_id").distinct().count()
         total_need_rows = need_rows_qs.count()
         total_issue_rows = monthly_issues_qs.count()
 
@@ -785,6 +829,14 @@ class DashboardSummaryAPIView(APIView):
         )["total"] or 0
 
         total_remaining_sum = total_need_sum - total_issued_sum
+
+        total_need_qty = total_need_sum
+        total_issued_qty = total_issued_sum
+        total_remaining_qty = total_remaining_sum
+
+        total_yearly_amount = 0
+        total_issued_amount = 0
+        total_remaining_amount = 0
 
         institution_data = []
         institutions_qs = Institution.objects.all()
@@ -824,6 +876,14 @@ class DashboardSummaryAPIView(APIView):
             ) or 0
 
             remaining = total_need - issued_total
+
+            matched_price = get_latest_price(need.drug_id, year=need.year)
+            price_value = matched_price.price if matched_price else None
+
+            if price_value is not None:
+                total_yearly_amount += total_need * price_value
+                total_issued_amount += issued_total * price_value
+                total_remaining_amount += remaining * price_value
 
             remaining_percent = 0
             if total_need > 0:
@@ -882,9 +942,13 @@ class DashboardSummaryAPIView(APIView):
                 "drugs": total_drugs,
                 "need_rows": total_need_rows,
                 "issued_rows": total_issue_rows,
-                "total_need_sum": float(total_need_sum),
-                "total_issued_sum": float(total_issued_sum),
-                "total_remaining_sum": float(total_remaining_sum),
+                "total_need_qty": float(total_need_qty),
+                "total_issued_qty": float(total_issued_qty),
+                "total_remaining_qty": float(total_remaining_qty),
+
+                "total_need_sum": float(total_yearly_amount),
+                "total_issued_sum": float(total_issued_amount),
+                "total_remaining_sum": float(total_remaining_amount),
                 "critical_positions": critical_positions,
                 "over_need": over_need,
             },
@@ -1011,19 +1075,11 @@ class RoleListCreateAPIView(AccessProtectedMixin, generics.ListCreateAPIView):
             },
         )
 
-
 class RoleDetailAPIView(AccessProtectedMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
 
     def perform_update(self, serializer):
-        current_role = self.get_object()
-
-        if is_protected_role(current_role):
-            raise serializers.ValidationError({
-                "detail": f"\"{current_role.name}\" стандарт роль. Уни API орқали таҳрирлаб бўлмайди."
-            })
-
         role = serializer.save()
 
         write_audit_log(
@@ -1041,14 +1097,9 @@ class RoleDetailAPIView(AccessProtectedMixin, generics.RetrieveUpdateDestroyAPIV
     def destroy(self, request, *args, **kwargs):
         role = self.get_object()
 
-        if is_protected_role(role):
-            return protected_delete_response(
-                f"\"{role.name}\" стандарт роль. Уни API орқали ўчириб бўлмайди."
-            )
-
         if UserProfile.objects.filter(role=role).exists():
             return protected_delete_response(
-                "Бу роль фойдаланувчиларга бириктирилган. Аввал улардан ролни олиб ташланг."
+                "Бу роль фойдаланувчиларга бириктирилган. Аввал ушбу фойдаланувчилардан ролни олиб ташланг ёки уларга бошқа роль беринг."
             )
 
         role_id = role.id
@@ -1110,26 +1161,28 @@ class PagePermissionDetailAPIView(AccessProtectedMixin, generics.RetrieveUpdateD
     serializer_class = PagePermissionSerializer
 
     def perform_update(self, serializer):
-        item = serializer.save()
+        with transaction.atomic():
+            item = serializer.save()
+            ensure_manage_access_remains()
 
-        write_audit_log(
-            actor=self.request.user,
-            action="update",
-            target=item,
-            target_type="Саҳифа рухсати",
-            description="Саҳифа рухсати янгиланди.",
-            extra_data={
-                "role": item.role.name,
-                "page_code": item.page_code,
-                "can_view": item.can_view,
-                "can_add": item.can_add,
-                "can_edit": item.can_edit,
-                "can_delete": item.can_delete,
-                "can_export": item.can_export,
-                "can_print": item.can_print,
-                "can_manage_access": item.can_manage_access,
-            },
-        )
+            write_audit_log(
+                actor=self.request.user,
+                action="update",
+                target=item,
+                target_type="Саҳифа рухсати",
+                description="Саҳифа рухсати янгиланди.",
+                extra_data={
+                    "role": item.role.name,
+                    "page_code": item.page_code,
+                    "can_view": item.can_view,
+                    "can_add": item.can_add,
+                    "can_edit": item.can_edit,
+                    "can_delete": item.can_delete,
+                    "can_export": item.can_export,
+                    "can_print": item.can_print,
+                    "can_manage_access": item.can_manage_access,
+                },
+            )
 
     def destroy(self, request, *args, **kwargs):
         item = self.get_object()
@@ -1139,20 +1192,22 @@ class PagePermissionDetailAPIView(AccessProtectedMixin, generics.RetrieveUpdateD
         role_name = item.role.name
         page_code = item.page_code
 
-        response = super().destroy(request, *args, **kwargs)
+        with transaction.atomic():
+            response = super().destroy(request, *args, **kwargs)
+            ensure_manage_access_remains()
 
-        write_audit_log(
-            actor=request.user,
-            action="delete",
-            target_type="Саҳифа рухсати",
-            description="Саҳифа рухсати ўчирилди.",
-            extra_data={
-                "id": item_id,
-                "repr": item_repr,
-                "role": role_name,
-                "page_code": page_code,
-            },
-        )
+            write_audit_log(
+                actor=request.user,
+                action="delete",
+                target_type="Саҳифа рухсати",
+                description="Саҳифа рухсати ўчирилди.",
+                extra_data={
+                    "id": item_id,
+                    "repr": item_repr,
+                    "role": role_name,
+                    "page_code": page_code,
+                },
+            )
 
         return response
 
@@ -1171,51 +1226,57 @@ class UserPermissionOverrideListCreateAPIView(AccessProtectedMixin, generics.Lis
         return qs
 
     def perform_create(self, serializer):
-        item = serializer.save()
+        with transaction.atomic():
+            item = serializer.save()
+            ensure_manage_access_remains()
 
-        write_audit_log(
-            actor=self.request.user,
-            action="create",
-            target=item,
-            target_type="Индивидуал override",
-            description="Индивидуал override қўшилди.",
-            extra_data={
-                "user": item.user.username,
-                "page_code": item.page_code,
-                "can_view": item.can_view,
-                "can_add": item.can_add,
-                "can_edit": item.can_edit,
-                "can_delete": item.can_delete,
-                "can_export": item.can_export,
-                "can_print": item.can_print,
-                "can_manage_access": item.can_manage_access,
-            },
-        )
+            write_audit_log(
+                actor=self.request.user,
+                action="create",
+                target=item,
+                target_type="Индивидуал override",
+                description="Индивидуал override қўшилди.",
+                extra_data={
+                    "user": item.user.username,
+                    "page_code": item.page_code,
+                    "can_view": item.can_view,
+                    "can_add": item.can_add,
+                    "can_edit": item.can_edit,
+                    "can_delete": item.can_delete,
+                    "can_export": item.can_export,
+                    "can_print": item.can_print,
+                    "can_manage_access": item.can_manage_access,
+                },
+            )
+
 
 class UserPermissionOverrideDetailAPIView(AccessProtectedMixin, generics.RetrieveUpdateDestroyAPIView):
     queryset = UserPagePermissionOverride.objects.select_related("user").all()
     serializer_class = UserPagePermissionOverrideSerializer
-    def perform_update(self, serializer):
-        item = serializer.save()
 
-        write_audit_log(
-            actor=self.request.user,
-            action="update",
-            target=item,
-            target_type="Индивидуал override",
-            description="Фойдаланувчи учун индивидуал рухсат янгиланди.",
-            extra_data={
-                "user": item.user.username,
-                "page_code": item.page_code,
-                "can_view": item.can_view,
-                "can_add": item.can_add,
-                "can_edit": item.can_edit,
-                "can_delete": item.can_delete,
-                "can_export": item.can_export,
-                "can_print": item.can_print,
-                "can_manage_access": item.can_manage_access,
-            },
-        )
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            item = serializer.save()
+            ensure_manage_access_remains()
+
+            write_audit_log(
+                actor=self.request.user,
+                action="update",
+                target=item,
+                target_type="Индивидуал override",
+                description="Фойдаланувчи учун индивидуал рухсат янгиланди.",
+                extra_data={
+                    "user": item.user.username,
+                    "page_code": item.page_code,
+                    "can_view": item.can_view,
+                    "can_add": item.can_add,
+                    "can_edit": item.can_edit,
+                    "can_delete": item.can_delete,
+                    "can_export": item.can_export,
+                    "can_print": item.can_print,
+                    "can_manage_access": item.can_manage_access,
+                },
+            )
 
     def destroy(self, request, *args, **kwargs):
         item = self.get_object()
@@ -1225,22 +1286,25 @@ class UserPermissionOverrideDetailAPIView(AccessProtectedMixin, generics.Retriev
         username = item.user.username
         page_code = item.page_code
 
-        response = super().destroy(request, *args, **kwargs)
+        with transaction.atomic():
+            response = super().destroy(request, *args, **kwargs)
+            ensure_manage_access_remains()
 
-        write_audit_log(
-            actor=request.user,
-            action="delete",
-            target_type="Индивидуал override",
-            description="Фойдаланувчи учун индивидуал рухсат ўчирилди.",
-            extra_data={
-                "id": item_id,
-                "repr": item_repr,
-                "user": username,
-                "page_code": page_code,
-            },
-        )
+            write_audit_log(
+                actor=request.user,
+                action="delete",
+                target_type="Индивидуал override",
+                description="Фойдаланувчи учун индивидуал рухсат ўчирилди.",
+                extra_data={
+                    "id": item_id,
+                    "repr": item_repr,
+                    "user": username,
+                    "page_code": page_code,
+                },
+            )
 
         return response
+
 
 class ManagedUserListCreateAPIView(AccessProtectedMixin, generics.ListCreateAPIView):
     def get_queryset(self):
@@ -1279,6 +1343,8 @@ class ManagedUserListCreateAPIView(AccessProtectedMixin, generics.ListCreateAPIV
                 "is_staff": user.is_staff,
                 "is_superuser": user.is_superuser,
                 "role": role.name if role else None,
+                "password_policy": getattr(getattr(user, "profile", None), "password_policy", None),
+                "must_change_password": getattr(getattr(user, "profile", None), "must_change_password", None),
             },
         )
 
@@ -1304,78 +1370,98 @@ class ManagedUserDetailAPIView(AccessProtectedMixin, generics.RetrieveUpdateDest
         username = user.username
         user_repr = str(user)
 
-        response = super().destroy(request, *args, **kwargs)
+        with transaction.atomic():
+            response = super().destroy(request, *args, **kwargs)
+            ensure_manage_access_remains()
 
-        write_audit_log(
-            actor=request.user,
-            action="delete",
-            target_type="Фойдаланувчи",
-            description="Фойдаланувчи ўчирилди.",
-            extra_data={
-                "id": user_id,
-                "username": username,
-                "repr": user_repr,
-            },
-        )
+            write_audit_log(
+                actor=request.user,
+                action="delete",
+                target_type="Фойдаланувчи",
+                description="Фойдаланувчи ўчирилди.",
+                extra_data={
+                    "id": user_id,
+                    "username": username,
+                    "repr": user_repr,
+                },
+            )
 
         return response
-    
+
     def perform_update(self, serializer):
         current_user = self.get_object()
         requested_is_active = serializer.validated_data.get("is_active", current_user.is_active)
+        requested_is_superuser = serializer.validated_data.get("is_superuser", current_user.is_superuser)
 
         if current_user == self.request.user and requested_is_active is False:
             raise serializers.ValidationError({
                 "detail": "Ўзингизни API орқали нофаол қилиб бўлмайди."
             })
 
-        if current_user.is_superuser and current_user.is_active and requested_is_active is False:
+        if current_user.is_superuser and current_user.is_active:
             active_superusers_count = User.objects.filter(
                 is_superuser=True,
                 is_active=True,
             ).count()
 
-            if active_superusers_count <= 1:
+            if requested_is_active is False and active_superusers_count <= 1:
                 raise serializers.ValidationError({
                     "detail": "Охирги фаол superuser'ни нофаол қилиб бўлмайди."
                 })
 
+            if requested_is_superuser is False and active_superusers_count <= 1:
+                raise serializers.ValidationError({
+                    "detail": "Охирги фаол superuser ҳуқуқини олиб ташлаб бўлмайди."
+                })
+
         was_active = current_user.is_active
-        user = serializer.save()
 
-        role = getattr(getattr(user, "profile", None), "role", None)
+        with transaction.atomic():
+            user = serializer.save()
+            ensure_manage_access_remains()
 
-        if was_active != user.is_active:
-            description = (
-                "Фойдаланувчи фаол қилинди."
-                if user.is_active
-                else "Фойдаланувчи нофаол қилинди."
+            role = getattr(getattr(user, "profile", None), "role", None)
+
+            if was_active != user.is_active:
+                description = (
+                    "Фойдаланувчи фаол қилинди."
+                    if user.is_active
+                    else "Фойдаланувчи нофаол қилинди."
+                )
+            else:
+                description = "Фойдаланувчи янгиланди."
+
+            write_audit_log(
+                actor=self.request.user,
+                action="update",
+                target=user,
+                target_type="Фойдаланувчи",
+                description=description,
+                extra_data={
+                    "username": user.username,
+                    "is_active": user.is_active,
+                    "is_staff": user.is_staff,
+                    "is_superuser": user.is_superuser,
+                    "role": role.name if role else None,
+                    "password_policy": getattr(getattr(user, "profile", None), "password_policy", None),
+                    "must_change_password": getattr(getattr(user, "profile", None), "must_change_password", None),
+                },
             )
-        else:
-            description = "Фойдаланувчи янгиланди."
-
-        write_audit_log(
-            actor=self.request.user,
-            action="update",
-            target=user,
-            target_type="Фойдаланувчи",
-            description=description,
-            extra_data={
-                "username": user.username,
-                "is_active": user.is_active,
-                "is_staff": user.is_staff,
-                "is_superuser": user.is_superuser,
-                "role": role.name if role else None,
-            },
-        )
 
 class AdminSetPasswordAPIView(AccessProtectedMixin, APIView):
     def post(self, request, pk):
         target_user = generics.get_object_or_404(User, pk=pk)
         serializer = AdminSetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
         target_user.set_password(serializer.validated_data["new_password"])
         target_user.save(update_fields=["password"])
+
+        profile, _created = UserProfile.objects.get_or_create(user=target_user)
+        profile.password_policy = serializer.validated_data.get("password_policy", profile.password_policy)
+        profile.must_change_password = serializer.validated_data.get("must_change_password", profile.must_change_password)
+        profile.save()
+
         Token.objects.filter(user=target_user).delete()
 
         write_audit_log(
@@ -1387,7 +1473,49 @@ class AdminSetPasswordAPIView(AccessProtectedMixin, APIView):
             extra_data={
                 "user_id": target_user.id,
                 "username": target_user.username,
+                "password_policy": profile.password_policy,
+                "must_change_password": profile.must_change_password,
             },
         )
         
         return Response({"detail": "Пароль янгиланди. Эски токенлар бекор қилинди."})
+    
+class SelfChangePasswordAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = SelfChangePasswordSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        request.user.set_password(serializer.validated_data["new_password"])
+        request.user.save(update_fields=["password"])
+
+        profile, _created = UserProfile.objects.get_or_create(user=request.user)
+        profile.must_change_password = False
+        profile.save(update_fields=["must_change_password"])
+
+        Token.objects.filter(user=request.user).delete()
+        token = Token.objects.create(user=request.user)
+
+        write_audit_log(
+            actor=request.user,
+            action="update",
+            target=request.user,
+            target_type="Ўз пароли",
+            description="Фойдаланувчи ўз паролини алмаштирди.",
+            extra_data={
+                "user_id": request.user.id,
+                "username": request.user.username,
+                "password_policy": profile.password_policy,
+                "must_change_password": profile.must_change_password,
+            },
+        )
+
+        return Response({
+            "detail": "Пароль муваффақиятли алмаштирилди.",
+            "token": token.key,
+            "must_change_password": False,
+        })

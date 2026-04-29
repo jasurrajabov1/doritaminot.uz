@@ -67,9 +67,9 @@ class RoleAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "role", "updated_at")
-    search_fields = ("user__username", "user__first_name", "user__last_name", "role__name")
-    list_filter = ("role",)
+    list_display = ("id", "user", "role", "updated_at", "password_policy", "must_change_password")
+    search_fields = ("user__username", "user__first_name", "user__last_name", "role__name", "password_policy")
+    list_filter = ("role", "password_policy", "must_change_password")
 
 
 @admin.register(PagePermission)

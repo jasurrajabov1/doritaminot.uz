@@ -1,3 +1,4 @@
+from datetime import date
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.authtoken.models import Token
@@ -262,6 +263,148 @@ class AuthAccessSmokeTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("detail", response.data)
         self.assertTrue(NeedRow.objects.filter(id=need_row.id).exists())
+
+
+
+    def test_dashboard_summary_returns_qty_and_sum_fields_correctly(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution = Institution.objects.first()
+        drug = Drug.objects.create(
+            name="Dashboard summary test drug",
+            unit="dona",
+            manufacturer="Test",
+        )
+
+        Price.objects.create(
+            drug=drug,
+            price=1000,
+            start_date=date(2026, 1, 1),
+        )
+
+        NeedRow.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            dpm_need=10,
+            amb_rec_need=5,
+        )
+
+        MonthlyIssue.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            issued_qty=4,
+        )
+
+        response = self.client.get(reverse("dashboard-summary"), {"year": 2026})
+
+        self.assertEqual(response.status_code, 200)
+
+        cards = response.data["cards"]
+
+        self.assertIn("total_need_qty", cards)
+        self.assertIn("total_issued_qty", cards)
+        self.assertIn("total_remaining_qty", cards)
+        self.assertIn("total_need_sum", cards)
+        self.assertIn("total_issued_sum", cards)
+        self.assertIn("total_remaining_sum", cards)
+
+        self.assertGreaterEqual(cards["total_need_qty"], 15)
+        self.assertGreaterEqual(cards["total_issued_qty"], 4)
+        self.assertGreaterEqual(cards["total_remaining_qty"], 11)
+
+        self.assertGreaterEqual(cards["total_need_sum"], 15000)
+        self.assertGreaterEqual(cards["total_issued_sum"], 4000)
+        self.assertGreaterEqual(cards["total_remaining_sum"], 11000)
+
+    def test_dashboard_summary_filters_by_institution_and_calculates_amounts_exactly(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution_1 = Institution.objects.create(
+            name="Dashboard filter institution 1",
+            address="Test address 1",
+            is_active=True,
+        )
+        institution_2 = Institution.objects.create(
+            name="Dashboard filter institution 2",
+            address="Test address 2",
+            is_active=True,
+        )
+
+        drug_1 = Drug.objects.create(
+            name="Dashboard filter drug 1",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+        drug_2 = Drug.objects.create(
+            name="Dashboard filter drug 2",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        Price.objects.create(
+            drug=drug_1,
+            price=1000,
+            start_date=date(2026, 1, 1),
+        )
+        Price.objects.create(
+            drug=drug_2,
+            price=5000,
+            start_date=date(2026, 1, 1),
+        )
+
+        NeedRow.objects.create(
+            institution=institution_1,
+            drug=drug_1,
+            year=2026,
+            dpm_need=10,
+            amb_rec_need=5,
+        )
+        NeedRow.objects.create(
+            institution=institution_2,
+            drug=drug_2,
+            year=2026,
+            dpm_need=100,
+            amb_rec_need=50,
+        )
+
+        MonthlyIssue.objects.create(
+            institution=institution_1,
+            drug=drug_1,
+            year=2026,
+            issued_qty=4,
+        )
+        MonthlyIssue.objects.create(
+            institution=institution_2,
+            drug=drug_2,
+            year=2026,
+            issued_qty=20,
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary"),
+            {"year": 2026, "institution": institution_1.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        cards = response.data["cards"]
+
+        self.assertEqual(cards["need_rows"], 1)
+        self.assertEqual(cards["issued_rows"], 1)
+
+        self.assertEqual(cards["total_need_qty"], 15.0)
+        self.assertEqual(cards["total_issued_qty"], 4.0)
+        self.assertEqual(cards["total_remaining_qty"], 11.0)
+
+        self.assertEqual(cards["total_need_sum"], 15000.0)
+        self.assertEqual(cards["total_issued_sum"], 4000.0)
+        self.assertEqual(cards["total_remaining_sum"], 11000.0)
 
 
     def test_new_institution_delete_is_blocked_if_need_row_exists(self):
@@ -815,6 +958,68 @@ class AuthAccessSmokeTests(APITestCase):
 
         response = self.client.get(reverse("access-roles-list"))
         self.assertEqual(response.status_code, 200)
+
+    def test_last_manage_access_page_permission_update_is_blocked(self):
+        self.superuser.is_active = False
+        self.superuser.save(update_fields=["is_active"])
+
+        permission = PagePermission.objects.get(
+            role=self.role,
+            page_code="access_management",
+        )
+        permission.can_view = True
+        permission.can_manage_access = True
+        permission.save(update_fields=["can_view", "can_manage_access"])
+
+        token = Token.objects.create(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        response = self.client.patch(
+            reverse("access-page-permissions-detail", args=[permission.id]),
+            {"can_manage_access": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("detail", response.data)
+
+        permission.refresh_from_db()
+        self.assertTrue(permission.can_manage_access)
+
+    def test_last_manage_access_user_override_update_is_blocked(self):
+        self.superuser.is_active = False
+        self.superuser.save(update_fields=["is_active"])
+
+        permission = PagePermission.objects.get(
+            role=self.role,
+            page_code="access_management",
+        )
+        permission.can_view = False
+        permission.can_manage_access = False
+        permission.save(update_fields=["can_view", "can_manage_access"])
+
+        override = UserPagePermissionOverride.objects.create(
+            user=self.user,
+            page_code="access_management",
+            can_view=True,
+            can_manage_access=True,
+        )
+
+        token = Token.objects.create(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        response = self.client.patch(
+            reverse("access-user-permission-overrides-detail", args=[override.id]),
+            {"can_manage_access": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("detail", response.data)
+
+        override.refresh_from_db()
+        self.assertTrue(override.can_manage_access)
+
 
     def test_login_writes_audit_log(self):
         response = self.client.post(
@@ -1432,7 +1637,7 @@ class ManagementCommandsTests(APITestCase):
 
         self.assertTrue(User.objects.filter(username="only_root").exists())
 
-    def test_standard_role_update_is_blocked_on_api_level(self):
+    def test_standard_role_update_is_allowed_on_api_level(self):
         call_command("seed_roles", stdout=StringIO())
 
         admin_user = User.objects.create_superuser(
@@ -1443,21 +1648,20 @@ class ManagementCommandsTests(APITestCase):
         token = Token.objects.create(user=admin_user)
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
 
-        role = Role.objects.get(name="Админ")
+        role = Role.objects.get(name="Оператор")
 
         response = self.client.patch(
             reverse("access-roles-detail", args=[role.id]),
-            {"description": "Protected role edited"},
+            {"description": "Role edited by admin"},
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("detail", response.data)
+        self.assertEqual(response.status_code, 200)
 
         role.refresh_from_db()
-        self.assertNotEqual(role.description, "Protected role edited")
+        self.assertEqual(role.description, "Role edited by admin")
 
-    def test_standard_role_delete_is_blocked_on_api_level(self):
+    def test_standard_role_delete_is_allowed_when_not_assigned_to_user(self):
         call_command("seed_roles", stdout=StringIO())
 
         admin_user = User.objects.create_superuser(
@@ -1469,6 +1673,35 @@ class ManagementCommandsTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
 
         role = Role.objects.get(name="Кузатувчи")
+        self.assertFalse(UserProfile.objects.filter(role=role).exists())
+
+        response = self.client.delete(
+            reverse("access-roles-detail", args=[role.id])
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Role.objects.filter(id=role.id).exists())
+
+    def test_role_delete_is_blocked_when_assigned_to_user(self):
+        role = Role.objects.create(
+            name="Бириккан роль",
+            description="Фойдаланувчига бириккан роль",
+            is_active=True,
+        )
+
+        user = User.objects.create_user(
+            username="assigned_role_user",
+            password="StrongPass123!",
+        )
+        UserProfile.objects.create(user=user, role=role)
+
+        admin_user = User.objects.create_superuser(
+            username="role_api_admin_assigned_delete",
+            password="StrongPass123!",
+            email="role_api_admin_assigned_delete@example.com",
+        )
+        token = Token.objects.create(user=admin_user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
 
         response = self.client.delete(
             reverse("access-roles-detail", args=[role.id])

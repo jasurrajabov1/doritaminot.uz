@@ -11,16 +11,6 @@ import {
   tdStyle,
 } from "./styles";
 
-const PROTECTED_ROLE_NAMES = ["Админ", "Оператор", "Кузатувчи"];
-
-function isProtectedPermission(item) {
-  return PROTECTED_ROLE_NAMES.includes(String(item.role_name || "").trim());
-}
-
-function getProtectedPermissionReason(item) {
-  return `"${item.role_name}" стандарт роль. Бу рухсатни таҳрирлаш ёки ўчириш мумкин эмас.`;
-}
-
 export default function PermissionsSection({
   editingPermissionId,
   permissionForm,
@@ -241,8 +231,8 @@ export default function PermissionsSection({
             </thead>
             <tbody>
               {pagePermissions.map((item) => {
-                const isProtected = isProtectedPermission(item);
                 const isDeleting = permissionDeletingId === item.id;
+
 
                 return (
                   <tr key={item.id}>
@@ -261,17 +251,9 @@ export default function PermissionsSection({
                         <button
                           type="button"
                           onClick={() => handlePermissionEdit(item)}
-                          style={{
-                            ...smallEditButtonStyle,
-                            opacity: isProtected ? 0.55 : 1,
-                            cursor: isProtected ? "not-allowed" : "pointer",
-                          }}
-                          disabled={isProtected}
-                          title={
-                            isProtected
-                              ? getProtectedPermissionReason(item)
-                              : "Рухсатни таҳрирлаш"
-                          }
+                          style={smallEditButtonStyle}
+                          disabled={false}
+                          title="Рухсатни таҳрирлаш"
                         >
                           Таҳрирлаш
                         </button>
@@ -281,15 +263,11 @@ export default function PermissionsSection({
                           onClick={() => handlePermissionDelete(item)}
                           style={{
                             ...smallDeleteButtonStyle,
-                            opacity: isProtected || isDeleting ? 0.55 : 1,
-                            cursor: isProtected || isDeleting ? "not-allowed" : "pointer",
+                            opacity: isDeleting ? 0.55 : 1,
+                            cursor: isDeleting ? "not-allowed" : "pointer",
                           }}
-                          disabled={isProtected || isDeleting}
-                          title={
-                            isProtected
-                              ? getProtectedPermissionReason(item)
-                              : "Рухсатни ўчириш"
-                          }
+                          disabled={isDeleting}
+                          title="Рухсатни ўчириш"
                         >
                           {isDeleting ? "Ўчирилмоқда..." : "Ўчириш"}
                         </button>

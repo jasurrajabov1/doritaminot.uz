@@ -57,7 +57,11 @@ export default function PublicOnlyRoute({ children }) {
   }, []);
 
   if (status === "checking") {
-    return <div style={{ padding: "24px" }}>Юкланмоқда...</div>;
+    return (
+      <div className="page-loading">
+        <div className="page-loading-text">Юкланмоқда...</div>
+      </div>
+    );
   }
 
   if (status === "redirect" && nextPath) {

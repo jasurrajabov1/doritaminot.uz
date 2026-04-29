@@ -49,6 +49,8 @@ export default function useUserActions({
           is_active: userForm.is_active,
           is_staff: userForm.is_staff,
           role_id: toRoleId(userForm.role_id),
+          password_policy: userForm.password_policy || "medium",
+          must_change_password: !!userForm.must_change_password,
         };
 
         await api.patch(`/access/users/${editingUserId}/`, payload);
@@ -63,8 +65,9 @@ export default function useUserActions({
           is_active: userForm.is_active,
           is_staff: userForm.is_staff,
           role_id: toRoleId(userForm.role_id),
+          password_policy: userForm.password_policy || "medium",
+          must_change_password: !!userForm.must_change_password,
         };
-
         await api.post("/access/users/", payload);
         setSuccess("Фойдаланувчи муваффақиятли қўшилди.");
       }
@@ -94,6 +97,8 @@ export default function useUserActions({
       last_name: user.last_name || "",
       email: user.email || "",
       role_id: user.role?.id ? String(user.role.id) : "",
+      password_policy: user.password_policy || "medium",
+      must_change_password: !!user.must_change_password,
       is_active: !!user.is_active,
       is_staff: !!user.is_staff,
     });
@@ -104,7 +109,11 @@ export default function useUserActions({
   const handleOpenPassword = (user) => {
     setSuccess("");
     setError("");
-    setPasswordTarget(user);
+    setPasswordTarget({
+      ...user,
+      password_policy: user.password_policy || "medium",
+      must_change_password: !!user.must_change_password,
+    });
     setNewPassword("");
     setActiveTab("users");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -132,6 +141,8 @@ export default function useUserActions({
 
       await api.post(`/access/users/${passwordTarget.id}/set-password/`, {
         new_password: newPassword,
+        password_policy: passwordTarget.password_policy || "medium",
+        must_change_password: !!passwordTarget.must_change_password,
       });
 
       setNewPassword("");

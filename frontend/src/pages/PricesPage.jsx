@@ -14,13 +14,16 @@ const parseDecimal = (val) => {
     .trim()
     .replaceAll(" ", "")
     .replace(",", ".");
+
   if (s === "") return null;
+
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 };
 
 const formatMoney = (value) => {
   if (value === null || value === undefined || value === "") return "";
+
   return Number(value).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -51,6 +54,18 @@ const getErrorMessage = (e, fallback) => {
   return fallback;
 };
 
+const fetchPricesData = async () => {
+  const [pricesRes, drugsRes] = await Promise.all([
+    api.get("/prices/"),
+    api.get("/drugs/"),
+  ]);
+
+  return {
+    prices: toArray(pricesRes.data),
+    drugs: toArray(drugsRes.data),
+  };
+};
+
 export default function PricesPage() {
   const canViewPrices = canViewPage("prices");
   const canAddPrice = canDo("prices", "add");
@@ -58,6 +73,7 @@ export default function PricesPage() {
   const canDeletePrice = canDo("prices", "delete");
 
   const canManagePrices = canAddPrice || canEditPrice || canDeletePrice;
+  const canShowPriceActions = canEditPrice || canDeletePrice;
 
   const [items, setItems] = useState([]);
   const [drugs, setDrugs] = useState([]);
@@ -74,6 +90,8 @@ export default function PricesPage() {
   const [searchText, setSearchText] = useState("");
   const [filterDrug, setFilterDrug] = useState("");
   const [filterActive, setFilterActive] = useState("");
+
+  const canShowPriceForm = canAddPrice || (editingId !== null && canEditPrice);
 
   const compactHeaderCell = {
     padding: "6px 6px",
@@ -119,41 +137,44 @@ export default function PricesPage() {
   };
 
 const load = useCallback(async () => {
-  try {
-    const [pricesRes, drugsRes] = await Promise.all([
-      api.get("/prices/"),
-      api.get("/drugs/"),
-    ]);
+  if (!canViewPrices) return;
 
-    setItems(toArray(pricesRes.data));
-    setDrugs(toArray(drugsRes.data));
+  try {
+    const { prices, drugs } = await fetchPricesData();
+
+    setItems(prices);
+    setDrugs(drugs);
     setError("");
   } catch (e) {
     console.error(e);
     setError(getErrorMessage(e, "Рўйхатни юклашда хато бўлди."));
   }
-}, []);
+}, [canViewPrices]);
 
 useEffect(() => {
-  let active = true;
+  if (!canViewPrices) return undefined;
 
-  Promise.all([api.get("/prices/"), api.get("/drugs/")])
-    .then(([pricesRes, drugsRes]) => {
-      if (!active) return;
-      setItems(toArray(pricesRes.data));
-      setDrugs(toArray(drugsRes.data));
+  let cancelled = false;
+
+  fetchPricesData()
+    .then(({ prices, drugs }) => {
+      if (cancelled) return;
+
+      setItems(prices);
+      setDrugs(drugs);
       setError("");
     })
     .catch((e) => {
+      if (cancelled) return;
+
       console.error(e);
-      if (!active) return;
       setError(getErrorMessage(e, "Рўйхатни юклашда хато бўлди."));
     });
 
   return () => {
-    active = false;
+    cancelled = true;
   };
-}, []);
+}, [canViewPrices]);
 
   const resetForm = () => {
     setDrug("");
@@ -165,6 +186,12 @@ useEffect(() => {
   };
 
   const startEdit = (x) => {
+    if (!canEditPrice) {
+      setSuccess("");
+      setError("Сизда нархни таҳрирлаш ҳуқуқи йўқ.");
+      return;
+    }
+
     setError("");
     setSuccess("");
     setEditingId(x.id);
@@ -172,6 +199,7 @@ useEffect(() => {
     setPrice(x.price !== null && x.price !== undefined ? String(x.price) : "");
     setStartDate(x.start_date ?? "");
     setIsActive(x.is_active ?? true);
+
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -191,11 +219,18 @@ useEffect(() => {
   };
 
   const handleAdd = async () => {
+    if (!canAddPrice) {
+      setSuccess("");
+      setError("Сизда нарх қўшиш ҳуқуқи йўқ.");
+      return;
+    }
+
     try {
       setError("");
       setSuccess("");
 
       const payload = buildPayload();
+
       if (!payload) {
         setError(
           "Дори, нарх ва бошланиш санаси мажбурий. Нарх 0 дан катта бўлиши керак."
@@ -215,6 +250,12 @@ useEffect(() => {
   };
 
   const handleSave = async () => {
+    if (!canEditPrice) {
+      setSuccess("");
+      setError("Сизда нархни таҳрирлаш ҳуқуқи йўқ.");
+      return;
+    }
+
     try {
       setError("");
       setSuccess("");
@@ -225,6 +266,7 @@ useEffect(() => {
       }
 
       const payload = buildPayload();
+
       if (!payload) {
         setError(
           "Дори, нарх ва бошланиш санаси мажбурий. Нарх 0 дан катта бўлиши керак."
@@ -249,13 +291,21 @@ useEffect(() => {
   };
 
   const handleDelete = async (id) => {
+    if (!canDeletePrice) {
+      setSuccess("");
+      setError("Сизда нархни ўчириш ҳуқуқи йўқ.");
+      return;
+    }
+
     const ok = window.confirm("Ростдан ҳам ўчирмоқчимисиз?");
     if (!ok) return;
 
     try {
       setError("");
       setSuccess("");
+
       await api.delete(`/prices/${id}/`);
+
       setSuccess("Нарх ўчирилди.");
       await load();
     } catch (e) {
@@ -295,22 +345,29 @@ useEffect(() => {
       .sort((a, b) => {
         const da = String(a.start_date ?? "");
         const db = String(b.start_date ?? "");
+
         if (da !== db) return db.localeCompare(da);
+
         return Number(b.id) - Number(a.id);
       });
   }, [items, filterDrug, filterActive, searchText, drugName]);
 
   if (!canViewPrices) {
-    return <div className="page-container">Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.</div>;
+    return (
+      <div className="page-container">
+        Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.
+      </div>
+    );
   }
 
   return (
     <div className="page-container">
       <h2>Нархлар</h2>
+
       <p style={{ marginTop: "-6px", color: "#475569" }}>
         Бу саҳифада фақат битта асосий нарх юритилади.
       </p>
-      
+
       {!canManagePrices ? (
         <p style={{ color: "#475569" }}>
           Сизда ушбу саҳифада фақат кўриш ҳуқуқи бор.
@@ -320,61 +377,59 @@ useEffect(() => {
       {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
       {success ? <p style={{ color: "#166534" }}>{success}</p> : null}
 
-      <div className="form-card">
-        <div className="form-row">
-          <select value={drug} onChange={(e) => setDrug(e.target.value)}>
-            <option value="">Дорини танланг</option>
-            {drugs.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-              </option>
-            ))}
-          </select>
+      {canShowPriceForm ? (
+        <div className="form-card">
+          <div className="form-row">
+            <select value={drug} onChange={(e) => setDrug(e.target.value)}>
+              <option value="">Дорини танланг</option>
+              {drugs.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
 
-          <input
-            type="text"
-            inputMode="decimal"
-            placeholder="Нарх"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-          />
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="Нарх"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
 
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
 
-          {editingId === null ? (
-            canAddPrice ? (
+            {editingId === null ? (
               <button className="primary" type="button" onClick={handleAdd}>
                 Қўшиш
               </button>
-            ) : null
-          ) : (
-            <>
-              {canEditPrice ? (
+            ) : (
+              <>
                 <button className="primary" type="button" onClick={handleSave}>
                   Сақлаш
                 </button>
-              ) : null}
-              <button type="button" onClick={handleCancel}>
-                Бекор қилиш
-              </button>
-            </>
-          )}
-        </div>
+                <button type="button" onClick={handleCancel}>
+                  Бекор қилиш
+                </button>
+              </>
+            )}
+          </div>
 
-        <div className="checkbox-row">
-          <input
-            id="price-active"
-            type="checkbox"
-            checked={isActive}
-            onChange={(e) => setIsActive(e.target.checked)}
-          />
-          <label htmlFor="price-active">Фаол</label>
+          <div className="checkbox-row">
+            <input
+              id="price-active"
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+            />
+            <label htmlFor="price-active">Фаол</label>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="form-card" style={{ marginTop: "16px" }}>
         <div className="filter-row">
@@ -434,9 +489,12 @@ useEffect(() => {
               <th style={compactHeaderCell}>Нарх</th>
               <th style={compactHeaderCell}>Нарх олинган сана</th>
               <th style={compactHeaderCell}>Фаол</th>
-              {canManagePrices ? <th style={compactHeaderCell}>Амал</th> : null}
+              {canShowPriceActions ? (
+                <th style={compactHeaderCell}>Амал</th>
+              ) : null}
             </tr>
           </thead>
+
           <tbody>
             {filteredItems.length > 0 ? (
               filteredItems.map((x) => (
@@ -447,9 +505,12 @@ useEffect(() => {
                   <td style={nowrapCell}>{x.start_date}</td>
                   <td style={nowrapCell}>{x.is_active ? "Ҳа" : "Йўқ"}</td>
 
-                  {canManagePrices ? (
+                  {canShowPriceActions ? (
                     <td style={actionCellStyle}>
-                      <div className="actions-cell" style={{ gap: "6px", flexWrap: "wrap" }}>
+                      <div
+                        className="actions-cell"
+                        style={{ gap: "6px", flexWrap: "wrap" }}
+                      >
                         {canEditPrice ? (
                           <button
                             type="button"
@@ -472,12 +533,11 @@ useEffect(() => {
                       </div>
                     </td>
                   ) : null}
-
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={canManagePrices ? 6 : 5} style={compactCell}>
+                <td colSpan={canShowPriceActions ? 6 : 5} style={compactCell}>
                   Маълумот йўқ
                 </td>
               </tr>

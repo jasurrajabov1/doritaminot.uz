@@ -10,16 +10,6 @@ import {
   tdStyle,
 } from "./styles";
 
-const PROTECTED_ROLE_NAMES = ["Админ", "Оператор", "Кузатувчи"];
-
-function isProtectedRole(role) {
-  return PROTECTED_ROLE_NAMES.includes(String(role?.name || "").trim());
-}
-
-function getProtectedRoleReason(role) {
-  return `"${role?.name || "Бу роль"}" стандарт роль. Уни бу ердан таҳрирлаш ёки ўчириш мумкин эмас.`;
-}
-
 export default function RolesSection({
   editingRoleId,
   roleForm,
@@ -154,7 +144,6 @@ export default function RolesSection({
             </thead>
             <tbody>
               {roles.map((item) => {
-                const isProtected = isProtectedRole(item);
                 const isDeleting = roleDeletingId === item.id;
 
                 return (
@@ -171,17 +160,9 @@ export default function RolesSection({
                         <button
                           type="button"
                           onClick={() => handleRoleEdit(item)}
-                          style={{
-                            ...smallEditButtonStyle,
-                            opacity: isProtected ? 0.55 : 1,
-                            cursor: isProtected ? "not-allowed" : "pointer",
-                          }}
-                          disabled={isProtected}
-                          title={
-                            isProtected
-                              ? getProtectedRoleReason(item)
-                              : "Рольни таҳрирлаш"
-                          }
+                          style={smallEditButtonStyle}
+                          disabled={false}
+                          title="Рольни таҳрирлаш"
                         >
                           Таҳрирлаш
                         </button>
@@ -191,18 +172,11 @@ export default function RolesSection({
                           onClick={() => handleRoleDelete(item)}
                           style={{
                             ...smallDeleteButtonStyle,
-                            opacity: isProtected || isDeleting ? 0.55 : 1,
-                            cursor:
-                              isProtected || isDeleting
-                                ? "not-allowed"
-                                : "pointer",
+                            opacity: isDeleting ? 0.55 : 1,
+                            cursor: isDeleting ? "not-allowed" : "pointer",
                           }}
-                          disabled={isProtected || isDeleting}
-                          title={
-                            isProtected
-                              ? getProtectedRoleReason(item)
-                              : "Рольни ўчириш"
-                          }
+                          disabled={isDeleting}
+                          title="Рольни ўчириш"
                         >
                           {isDeleting ? "Ўчирилмоқда..." : "Ўчириш"}
                         </button>

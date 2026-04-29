@@ -619,3 +619,76 @@ button.primary:hover {
     min-width: 1415px;
   }
 }
+
+.empty-state-card {
+  max-width: 760px;
+  margin: 40px auto;
+}
+
+.empty-state-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.btn-secondary {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.btn-primary {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+}
+
+.muted-text {
+  color: #475569;
+}
+
+.topbar-logout {
+  margin-left: 8px;
+}
+
+.page-loading {
+  min-height: 40vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-loading-text {
+  color: #475569;
+  font-size: 15px;
+}
+
+.topbar-user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #4b5563;
+}
+
+.topbar-username {
+  padding: 8px 0;
+}
+
+.section-loading-card {
+  text-align: center;
+  color: #475569;
+}
+
+.section-denied-card {
+  max-width: 760px;
+  margin: 0 auto;
+  text-align: center;
+}
