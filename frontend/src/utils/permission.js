@@ -110,19 +110,28 @@ export function getCurrentUser() {
 export function getPagePermissions(pageCode) {
   const currentUser = getCurrentUser();
 
+  // 🛡️ HARD SAFETY (энг муҳим fix)
   if (!currentUser || !pageCode) {
     return emptyPermissions();
   }
 
-  const directPermissions = currentUser?.permissions?.[pageCode];
-  if (directPermissions) {
-    return {
-      ...emptyPermissions(),
-      ...normalizeFlags(directPermissions),
-    };
-  }
+  try {
+    const directPermissions = currentUser?.permissions?.[pageCode];
 
-  return buildPermissionsFromRows(currentUser, pageCode);
+    if (directPermissions) {
+      return {
+        ...emptyPermissions(),
+        ...normalizeFlags(directPermissions),
+      };
+    }
+
+    return buildPermissionsFromRows(currentUser, pageCode);
+  } catch (error) {
+    console.error("Permission error:", error);
+
+    // 🔥 fallback — oq экранни тўхтатади
+    return emptyPermissions();
+  }
 }
 
 export function canViewPage(pageCode) {

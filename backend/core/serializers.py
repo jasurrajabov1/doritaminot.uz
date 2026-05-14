@@ -82,11 +82,31 @@ class PriceSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def validate(self, attrs):
-        drug = attrs.get("drug") or (self.instance.drug if self.instance else None)
-        start_date = attrs.get("start_date") or (self.instance.start_date if self.instance else None)
+        drug = attrs.get("drug")
+        if drug is None and self.instance is not None:
+            drug = self.instance.drug
+
+        start_date = attrs.get("start_date")
+        if start_date is None and self.instance is not None:
+            start_date = self.instance.start_date
+
+        if "price" in attrs:
+            price = attrs["price"]
+        elif self.instance is not None:
+            price = self.instance.price
+        else:
+            price = None
+
+        if price is not None and price <= 0:
+            raise serializers.ValidationError({
+                "price": "Нарх 0 дан катта бўлиши керак."
+            })
 
         if drug and start_date:
-            qs = Price.objects.filter(drug=drug, start_date=start_date)
+            qs = Price.objects.filter(
+                drug=drug,
+                start_date=start_date,
+            )
 
             if self.instance:
                 qs = qs.exclude(id=self.instance.id)

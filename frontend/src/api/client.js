@@ -34,8 +34,32 @@ export function clearAuthToken() {
 
 export async function fetchCurrentUser() {
   const res = await api.get("/auth/me/");
-  sessionStorage.setItem("auth_me", JSON.stringify(res.data));
-  return res.data;
+
+  const user = res.data;
+
+  // 🔥 NORMALIZE (энг муҳим)
+  const normalizedUser = {
+    ...user,
+
+    // default safety
+    allowed_pages: user.allowed_pages || [],
+
+    permissions: user.permissions || {},
+
+    page_permissions:
+      user.page_permissions ||
+      user.role_permissions ||
+      [],
+
+    user_permission_overrides:
+      user.user_permission_overrides ||
+      user.overrides ||
+      [],
+  };
+
+  sessionStorage.setItem("auth_me", JSON.stringify(normalizedUser));
+
+  return normalizedUser;
 }
 
 export default api;

@@ -29,6 +29,8 @@ export default function DrugsPage() {
   const [filterActive, setFilterActive] = useState("");
 
   const isEditMode = editingId !== null;
+  const canShowDrugForm = canAddDrug || (isEditMode && canEditDrug);
+  const canShowDrugActions = canEditDrug || canDeleteDrug;
 
   const toArray = (data) => {
     if (Array.isArray(data)) return data;
@@ -300,7 +302,7 @@ const load = useCallback(async () => {
       {success ? <p style={{ color: "#166534" }}>{success}</p> : null}
       {loading ? <p>Юкланяпти...</p> : null}
 
-      {canManageDrugs ? (
+      {canShowDrugForm ? (
         <div className="form-card">
           <div className="form-row">
             <input
@@ -405,7 +407,7 @@ const load = useCallback(async () => {
               <th style={compactHeaderCell}>Бирлик</th>
               <th style={compactHeaderCell}>Ишлаб чиқарувчи</th>
               <th style={compactHeaderCell}>Фаол</th>
-              {canManageDrugs ? <th style={compactHeaderCell}>Амал</th> : null}
+              {canShowDrugActions ? <th style={compactHeaderCell}>Амал</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -418,7 +420,7 @@ const load = useCallback(async () => {
                   <td style={wrapCell}>{d.manufacturer || ""}</td>
                   <td style={nowrapCell}>{(d.is_active ?? true) ? "Ҳа" : "Йўқ"}</td>
                   
-                  {canManageDrugs ? (
+                  {canShowDrugActions ? (
                     <td style={actionCellStyle}>
                       <div className="actions-cell" style={{ gap: "6px", flexWrap: "wrap" }}>
                         {canEditDrug ? (
@@ -458,7 +460,7 @@ const load = useCallback(async () => {
               ))
             ) : (
               <tr>
-                <td colSpan={canManageDrugs ? 6 : 5} style={compactCell}>
+                <td colSpan={canShowDrugActions ? 6 : 5} style={compactCell}>
                   Маълумот йўқ
                 </td>
               </tr>

@@ -379,6 +379,11 @@ class DrugDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         obj = self.get_object()
 
+        if Price.objects.filter(drug=obj).exists():
+            return protected_delete_response(
+                "Бу дори «Нархлар» саҳифасида ишлатилган. Аввал боғлиқ нарх қаторларини ўчиринг."
+            )
+
         if NeedRow.objects.filter(drug=obj).exists():
             return protected_delete_response(
                 "Бу дори «Эҳтиёж» саҳифасида ишлатилган. Аввал боғлиқ эҳтиёж қаторларини ўчиринг."
@@ -392,8 +397,6 @@ class DrugDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         obj_id = obj.id
         obj_repr = str(obj)
         obj_name = obj.name
-
-        Price.objects.filter(drug=obj).delete()
 
         response = super().destroy(request, *args, **kwargs)
 
@@ -410,7 +413,6 @@ class DrugDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         )
 
         return response
-
 
 class PriceListCreateAPIView(generics.ListCreateAPIView):
     queryset = Price.objects.select_related("drug").all().order_by("drug__name", "-start_date", "-id")

@@ -12,9 +12,11 @@ export default function AccessManagementTop({
     <>
       <h2>Фойдаланувчилар ва доступ</h2>
       <p>Бу саҳифа backend access API’лардан live маълумотларни олади.</p>
-      <p style={{ color: "#475569", marginTop: "-4px" }}>
-        Ҳозир бешинчи босқичда User Override CRUD frontend’га чиқарилди.
+
+      <p className="access-subtitle">
+        Бу саҳифа орқали роллар, фойдаланувчилар, саҳифа рухсатлари ва индивидуал override’лар бошқарилади.
       </p>
+
 
       {error ? (
         <div

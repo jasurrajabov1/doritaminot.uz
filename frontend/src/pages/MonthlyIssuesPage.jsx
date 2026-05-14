@@ -132,6 +132,12 @@ export default function MonthlyIssuesPage() {
 
   const isEditMode = editingId !== null;
 
+  const canShowMonthlyIssueForm =
+    canAddMonthlyIssue || (isEditMode && canEditMonthlyIssue);
+
+  const canShowMonthlyIssueActions =
+    canEditMonthlyIssue || canDeleteMonthlyIssue;
+
   const compactHeaderCell = {
     padding: "6px 6px",
     fontSize: "12px",
@@ -549,7 +555,7 @@ export default function MonthlyIssuesPage() {
       {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
       {success ? <p style={{ color: "#166534" }}>{success}</p> : null}
 
-      {canManageMonthlyIssues ? (
+      {canShowMonthlyIssueForm ? (
         <div className="form-card">
           <div className="form-row">
             <select value={institutionId} onChange={(e) => setInstitutionId(e.target.value)}>
@@ -700,7 +706,7 @@ export default function MonthlyIssuesPage() {
               <th style={compactHeaderCell}>Қолдиқ</th>
               <th style={compactHeaderCell}>Қолдиқ %</th>
               <th style={compactHeaderCell}>Статус</th>
-              {canManageMonthlyIssues ? <th style={compactHeaderCell}>Амал</th> : null}
+              {canShowMonthlyIssueActions ? <th style={compactHeaderCell}>Амал</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -731,8 +737,9 @@ export default function MonthlyIssuesPage() {
                     </span>
                   </td>
 
-                  {canManageMonthlyIssues ? (
+                  {canShowMonthlyIssueActions ? (
                     <td style={actionCellStyle}>
+
                       <div className="actions-cell" style={{ gap: "6px", flexWrap: "wrap" }}>
                         {canEditMonthlyIssue ? (
                           <button
@@ -760,7 +767,7 @@ export default function MonthlyIssuesPage() {
               ))
             ) : (
               <tr>
-                <td colSpan={canManageMonthlyIssues ? 10 : 9} style={compactCell}>
+                <td colSpan={canShowMonthlyIssueActions ? 10 : 9} style={compactCell}>
                   Маълумот йўқ
                 </td>
               </tr>

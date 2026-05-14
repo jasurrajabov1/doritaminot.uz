@@ -285,6 +285,12 @@ useEffect(() => {
 
   const isEditMode = editingId !== null;
 
+  const canShowInstitutionForm =
+    canCreateInstitution || (isEditMode && canUpdateInstitution);
+
+  const canShowInstitutionActions =
+    canUpdateInstitution || canDeleteInstitution;
+
   if (!canViewInstitutions) {
     return <div className="page-container">Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.</div>;
   }
@@ -302,7 +308,7 @@ useEffect(() => {
       {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
       {success ? <p style={{ color: "#166534" }}>{success}</p> : null}
 
-      {canManageInstitutions ? (
+      {canShowInstitutionForm ? (
         <div className="form-card">
           <div className="form-row">
             <input
@@ -392,7 +398,7 @@ useEffect(() => {
               <th style={compactHeaderCell}>Номи</th>
               <th style={compactHeaderCell}>Манзил</th>
               <th style={compactHeaderCell}>Фаол</th>
-              {canManageInstitutions ? <th style={compactHeaderCell}>Амал</th> : null}
+              {canShowInstitutionActions ? <th style={compactHeaderCell}>Амал</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -404,7 +410,7 @@ useEffect(() => {
                   <td style={wrapCell}>{item.address || ""}</td>
                   <td style={nowrapCell}>{item.is_active ? "Ҳа" : "Йўқ"}</td>
 
-                  {canManageInstitutions ? (
+                  {canShowInstitutionActions ? (
                     <td style={actionCellStyle}>
                       <div className="actions-cell" style={{ gap: "6px", flexWrap: "wrap" }}>
                         {canUpdateInstitution ? (
@@ -444,7 +450,9 @@ useEffect(() => {
               ))
             ) : (
               <tr>
-                <td colSpan="5" style={compactCell}>Маълумот йўқ</td>
+                <td colSpan={canShowInstitutionActions ? 5 : 4} style={compactCell}>
+                  Маълумот йўқ
+                </td>
               </tr>
             )}
           </tbody>

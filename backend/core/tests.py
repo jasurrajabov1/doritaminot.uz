@@ -539,6 +539,73 @@ class AuthAccessSmokeTests(APITestCase):
         self.assertTrue(NeedRow.objects.filter(institution=institution, drug=drug, year=2026).exists())
         self.assertTrue(MonthlyIssue.objects.filter(institution=institution, drug=drug, year=2026).exists())
 
+    def test_price_api_rejects_zero_or_negative_price(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        drug = Drug.objects.create(
+            name="Price validation API drug",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        zero_response = self.client.post(
+            reverse("prices-list"),
+            {
+                "drug": drug.id,
+                "price": "0",
+                "start_date": "2026-05-01",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        negative_response = self.client.post(
+            reverse("prices-list"),
+            {
+                "drug": drug.id,
+                "price": "-100",
+                "start_date": "2026-05-02",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(zero_response.status_code, 400)
+        self.assertIn("price", zero_response.data)
+
+        self.assertEqual(negative_response.status_code, 400)
+        self.assertIn("price", negative_response.data)
+
+    def test_drug_api_delete_is_blocked_when_price_exists(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        drug = Drug.objects.create(
+            name="Drug API delete blocked by price",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        price = Price.objects.create(
+            drug=drug,
+            price=Decimal("1000"),
+            start_date="2026-05-01",
+            is_active=True,
+        )
+
+        response = self.client.delete(
+            reverse("drugs-detail", args=[drug.id])
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("detail", response.data)
+        self.assertTrue(Drug.objects.filter(id=drug.id).exists())
+        self.assertTrue(Price.objects.filter(id=price.id).exists())
+
+
     def test_need_row_list_uses_price_by_row_year_not_today(self):
         token = Token.objects.create(user=self.superuser)
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")

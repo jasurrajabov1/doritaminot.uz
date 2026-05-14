@@ -31,6 +31,12 @@ export default function NeedRowsPage() {
 
   const isEditMode = editingId !== null;
 
+  const canShowNeedRowForm =
+  canAddNeedRow || (isEditMode && canEditNeedRow);
+
+  const canShowNeedRowActions =
+    canEditNeedRow || canDeleteNeedRow;
+
   const toArray = (data) => {
     if (Array.isArray(data)) return data;
     if (Array.isArray(data?.results)) return data.results;
@@ -491,7 +497,7 @@ useEffect(() => {
       {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
       {success ? <p style={{ color: "#166534" }}>{success}</p> : null}
 
-      {canManageNeedRows ? (
+      {canShowNeedRowForm ? (
         <div className="form-card">
           <div className="form-row">
             <select
@@ -637,7 +643,7 @@ useEffect(() => {
               <th style={compactHeaderCell}>Берилган сумма</th>
               <th style={compactHeaderCell}>Қолдиқ сумма</th>
               <th style={compactHeaderCell}>Қолдиқ %</th>
-              {canManageNeedRows ? <th style={compactHeaderCell}>Амал</th> : null}
+              {canShowNeedRowActions ? <th style={compactHeaderCell}>Амал</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -662,7 +668,7 @@ useEffect(() => {
                     </span>
                   </td>
 
-                  {canManageNeedRows ? (
+                  {canShowNeedRowActions ? (
                     <td style={actionCellStyle}>
                       <div className="actions-cell" style={{ gap: "6px", flexWrap: "wrap" }}>
                         {canEditNeedRow ? (
@@ -692,7 +698,7 @@ useEffect(() => {
               ))
             ) : (
               <tr>
-                <td colSpan={canManageNeedRows ? 14 : 13} style={compactCell}>
+                <td colSpan={canShowNeedRowActions ? 14 : 13} style={compactCell}>
                   Маълумот йўқ
                 </td>
               </tr>

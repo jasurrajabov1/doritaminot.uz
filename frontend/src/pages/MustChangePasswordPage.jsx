@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api, { setAuthToken } from "../api/client";
+import api, { setAuthToken, fetchCurrentUser } from "../api/client";
 import { getDefaultPath } from "../routes/routeHelpers";
 
 export default function MustChangePasswordPage() {
@@ -27,13 +27,11 @@ export default function MustChangePasswordPage() {
         setAuthToken(token);
       }
 
-      const meResponse = await api.get("/auth/me/");
-      const me = meResponse.data;
-
-      sessionStorage.setItem("auth_me", JSON.stringify(me));
+      const me = await fetchCurrentUser();
 
       const nextPath = getDefaultPath(me?.allowed_pages || []);
       navigate(nextPath, { replace: true });
+      
     } catch (err) {
       setError(
         err?.response?.data?.old_password?.[0] ||
