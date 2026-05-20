@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api/client";
 import { canDo, canViewPage } from "../utils/permission";
+import { getDrugLabel } from "../utils/drugLabel";
 
 const toArray = (data) => {
   if (Array.isArray(data)) return data;
@@ -90,7 +91,7 @@ export default function PricesPage() {
   const [searchText, setSearchText] = useState("");
   const [filterDrug, setFilterDrug] = useState("");
   const [filterActive, setFilterActive] = useState("");
-
+  const [selectedPriceIds, setSelectedPriceIds] = useState([]);
   const canShowPriceForm = canAddPrice || (editingId !== null && canEditPrice);
 
   const compactHeaderCell = {
@@ -305,6 +306,9 @@ useEffect(() => {
       setSuccess("");
 
       await api.delete(`/prices/${id}/`);
+      setSelectedPriceIds((prev) =>
+        prev.filter((x) => Number(x) !== Number(id))
+      );
 
       setSuccess("Нарх ўчирилди.");
       await load();
@@ -316,8 +320,12 @@ useEffect(() => {
 
   const drugName = useCallback(
     (id) => {
+      if (id && typeof id === "object") {
+        return getDrugLabel(id);
+      }
+
       const found = drugs.find((d) => Number(d.id) === Number(id));
-      return found ? found.name : id;
+      return found ? getDrugLabel(found) : id;
     },
     [drugs]
   );
@@ -352,6 +360,106 @@ useEffect(() => {
       });
   }, [items, filterDrug, filterActive, searchText, drugName]);
 
+  const selectedPriceIdSet = useMemo(
+    () => new Set(selectedPriceIds.map((id) => String(id))),
+    [selectedPriceIds]
+  );
+
+  const visiblePriceIds = useMemo(
+    () => filteredItems.map((item) => String(item.id)),
+    [filteredItems]
+  );
+
+  const allVisiblePricesSelected =
+    visiblePriceIds.length > 0 &&
+    visiblePriceIds.every((id) => selectedPriceIdSet.has(id));
+
+  const selectedPriceCount = selectedPriceIds.length;
+
+  const togglePriceSelected = (id) => {
+    const key = String(id);
+
+    setSelectedPriceIds((prev) =>
+      prev.map(String).includes(key)
+        ? prev.filter((item) => String(item) !== key)
+        : [...prev, key]
+    );
+  };
+
+  const toggleVisiblePrices = () => {
+    const visibleSet = new Set(visiblePriceIds);
+
+    setSelectedPriceIds((prev) => {
+      const current = new Set(prev.map(String));
+
+      if (allVisiblePricesSelected) {
+        return [...current].filter((id) => !visibleSet.has(id));
+      }
+
+      visiblePriceIds.forEach((id) => current.add(id));
+      return [...current];
+    });
+  };
+
+  const clearPriceSelection = () => {
+    setSelectedPriceIds([]);
+  };
+
+  const bulkDeleteSelectedPrices = async () => {
+    if (!canDeletePrice) {
+      setSuccess("");
+      setError("Сизда нархни ўчириш ҳуқуқи йўқ.");
+      return;
+    }
+
+    const ids = selectedPriceIds.map(String).filter(Boolean);
+
+    if (ids.length === 0) {
+      setSuccess("");
+      setError("Аввал ўчириладиган нархларни белгиланг.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `${ids.length} та танланган нарх ёзувини ўчиришни тасдиқлайсизми?`
+    );
+
+    if (!ok) return;
+
+    try {
+      setError("");
+      setSuccess("");
+
+      let deleted = 0;
+      const errors = [];
+
+      for (const id of ids) {
+        try {
+          await api.delete(`/prices/${id}/`);
+          deleted += 1;
+        } catch (e) {
+          console.error(e);
+          errors.push(`ID ${id}: ${getErrorMessage(e, "ўчиришда хато")}`);
+        }
+      }
+
+      setSelectedPriceIds([]);
+      await load();
+
+      if (errors.length > 0) {
+        setError(
+          `${deleted} та нарх ўчирилди. Қолган хатолар: ${errors.join(" | ")}`
+        );
+        return;
+      }
+
+      setSuccess(`${deleted} та нарх ўчирилди.`);
+    } catch (e) {
+      console.error(e);
+      setError(getErrorMessage(e, "Танланган нархларни ўчиришда хатолик юз берди."));
+    }
+  };
+
   if (!canViewPrices) {
     return (
       <div className="page-container">
@@ -384,7 +492,7 @@ useEffect(() => {
               <option value="">Дорини танланг</option>
               {drugs.map((x) => (
                 <option key={x.id} value={x.id}>
-                  {x.name}
+                  {getDrugLabel(x)}
                 </option>
               ))}
             </select>
@@ -447,7 +555,7 @@ useEffect(() => {
             <option value="">Барча дорилар</option>
             {drugs.map((x) => (
               <option key={x.id} value={x.id}>
-                {x.name}
+                {getDrugLabel(x)}
               </option>
             ))}
           </select>
@@ -474,6 +582,42 @@ useEffect(() => {
         </div>
       </div>
 
+
+      {canDeletePrice ? (
+        <div className="form-card" style={{ marginTop: "16px" }}>
+          <div className="filter-row" style={{ marginBottom: 0 }}>
+            <strong>Танланган: {selectedPriceCount} та</strong>
+
+            <button
+              type="button"
+              disabled={visiblePriceIds.length === 0}
+              onClick={toggleVisiblePrices}
+            >
+              {allVisiblePricesSelected
+                ? "Кўринаётганлар танланган"
+                : `Кўринаётганларни белгилаш (${visiblePriceIds.length})`}
+            </button>
+
+            <button
+              type="button"
+              disabled={selectedPriceCount === 0}
+              onClick={clearPriceSelection}
+            >
+              Танловни тозалаш
+            </button>
+
+            <button
+              type="button"
+              disabled={selectedPriceCount === 0}
+              onClick={bulkDeleteSelectedPrices}
+              style={{ borderColor: "#ef4444", color: "#dc2626" }}
+            >
+              Танланганларни ўчириш
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="table-wrap">
         <table
           className="grid-table"
@@ -484,6 +628,17 @@ useEffect(() => {
         >
           <thead>
             <tr>
+              {canDeletePrice ? (
+                <th style={compactHeaderCell}>
+                  <input
+                    type="checkbox"
+                    aria-label="Кўринаётган нархларни белгилаш"
+                    checked={allVisiblePricesSelected}
+                    disabled={visiblePriceIds.length === 0}
+                    onChange={toggleVisiblePrices}
+                  />
+                </th>
+              ) : null}
               <th style={compactHeaderCell}>ИД</th>
               <th style={compactHeaderCell}>Дори</th>
               <th style={compactHeaderCell}>Нарх</th>
@@ -499,6 +654,15 @@ useEffect(() => {
             {filteredItems.length > 0 ? (
               filteredItems.map((x) => (
                 <tr key={x.id}>
+                  {canDeletePrice ? (
+                    <td style={nowrapCell}>
+                      <input
+                        type="checkbox"
+                        checked={selectedPriceIdSet.has(String(x.id))}
+                        onChange={() => togglePriceSelected(x.id)}
+                      />
+                    </td>
+                  ) : null}
                   <td style={nowrapCell}>{x.id}</td>
                   <td style={wrapCell}>{drugName(x.drug)}</td>
                   <td style={nowrapCell}>{formatMoney(x.price)}</td>
@@ -537,7 +701,7 @@ useEffect(() => {
               ))
             ) : (
               <tr>
-                <td colSpan={canShowPriceActions ? 6 : 5} style={compactCell}>
+                <td colSpan={(canDeletePrice ? 1 : 0) + 5 + (canShowPriceActions ? 1 : 0)} style={compactCell}>
                   Маълумот йўқ
                 </td>
               </tr>

@@ -23,15 +23,15 @@ class InstitutionAdmin(admin.ModelAdmin):
 
 @admin.register(Drug)
 class DrugAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "unit", "manufacturer", "is_active")
-    search_fields = ("name", "manufacturer", "unit")
+    list_display = ("id", "display_name", "name", "mnn_name", "dosage_value", "dosage_unit", "package_quantity", "dosage_form", "unit", "manufacturer", "is_active")
+    search_fields = ("name", "full_name", "mnn_name", "manufacturer", "unit", "dosage_form")
     list_filter = ("is_active",)
 
 
 @admin.register(Price)
 class PriceAdmin(admin.ModelAdmin):
     list_display = ("id", "drug", "price", "start_date", "is_active")
-    search_fields = ("drug__name",)
+    search_fields = ("drug__name", "drug__full_name", "drug__mnn_name")
     list_filter = ("is_active", "start_date")
 
 
@@ -47,14 +47,14 @@ class NeedRowAdmin(admin.ModelAdmin):
         "yearly_need",
         "quarterly_need",
     )
-    search_fields = ("institution__name", "drug__name")
+    search_fields = ("institution__name", "drug__name", "drug__full_name", "drug__mnn_name")
     list_filter = ("year",)
 
 
 @admin.register(MonthlyIssue)
 class MonthlyIssueAdmin(admin.ModelAdmin):
     list_display = ("id", "institution", "drug", "year", "issued_qty")
-    search_fields = ("institution__name", "drug__name")
+    search_fields = ("institution__name", "drug__name", "drug__full_name", "drug__mnn_name")
     list_filter = ("year",)
 
 
@@ -143,3 +143,12 @@ class AuditLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+from .models import DrugOption
+
+@admin.register(DrugOption)
+class DrugOptionAdmin(admin.ModelAdmin):
+    list_display = ("id", "kind", "name", "aliases", "is_active", "sort_order")
+    list_filter = ("kind", "is_active")
+    search_fields = ("name", "aliases")
+    ordering = ("kind", "sort_order", "name")

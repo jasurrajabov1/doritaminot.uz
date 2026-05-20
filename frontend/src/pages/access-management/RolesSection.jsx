@@ -1,4 +1,4 @@
-import { yesNo } from "./helpers";
+import { formatDateTime, yesNo } from "./helpers";
 import {
   labelStyle,
   inputStyle,
@@ -151,8 +151,8 @@ export default function RolesSection({
                     <td style={tdStyle}>{item.id}</td>
                     <td style={tdStyle}>{item.name}</td>
                     <td style={tdStyle}>{item.description || "—"}</td>
-                    <td style={tdStyle}>{yesNo(item.is_active)}</td>
-                    <td style={tdStyle}>{item.created_at || "—"}</td>
+                    <td style={tdStyle}>{yesNo(item.is_active)}</td>  
+                    <td style={tdStyle}>{formatDateTime(item.created_at)}</td>
                     <td style={tdStyle}>
                       <div
                         style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}

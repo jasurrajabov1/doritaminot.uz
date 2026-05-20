@@ -1,4 +1,3 @@
-import { overrideText } from "./helpers";
 import { OverrideSelect } from "./AccessUi";
 import {
   labelStyle,
@@ -27,6 +26,63 @@ export default function OverridesSection({
 }) {
   const isOverrideFormInvalid =
     !overrideForm.user || !overrideForm.page_code;
+
+  const getOverrideBadgeStyle = (value) => {
+    if (value === true) {
+      return {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: "58px",
+        padding: "3px 8px",
+        borderRadius: "999px",
+        fontSize: "12px",
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+        background: "#dcfce7",
+        color: "#166534",
+        border: "1px solid #bbf7d0",
+      };
+    }
+
+    if (value === false) {
+      return {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: "58px",
+        padding: "3px 8px",
+        borderRadius: "999px",
+        fontSize: "12px",
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+        background: "#fee2e2",
+        color: "#991b1b",
+        border: "1px solid #fecaca",
+      };
+    }
+
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      minWidth: "58px",
+      padding: "3px 8px",
+      borderRadius: "999px",
+      fontSize: "12px",
+      fontWeight: 600,
+      whiteSpace: "nowrap",
+      background: "#f1f5f9",
+      color: "#475569",
+      border: "1px solid #e2e8f0",
+    };
+  };
+
+  const renderOverrideBadge = (value) => {
+    const label = value === true ? "Ҳа" : value === false ? "Йўқ" : "Мерос";
+    return <span style={getOverrideBadgeStyle(value)}>{label}</span>;
+  };
+    
 
   return (
     <>
@@ -242,13 +298,13 @@ export default function OverridesSection({
                     <td style={tdStyle}>{item.id}</td>
                     <td style={tdStyle}>{item.username}</td>
                     <td style={tdStyle}>{item.page_label}</td>
-                    <td style={tdStyle}>{overrideText(item.can_view)}</td>
-                    <td style={tdStyle}>{overrideText(item.can_add)}</td>
-                    <td style={tdStyle}>{overrideText(item.can_edit)}</td>
-                    <td style={tdStyle}>{overrideText(item.can_delete)}</td>
-                    <td style={tdStyle}>{overrideText(item.can_export)}</td>
-                    <td style={tdStyle}>{overrideText(item.can_print)}</td>
-                    <td style={tdStyle}>{overrideText(item.can_manage_access)}</td>
+                    <td style={tdStyle}>{renderOverrideBadge(item.can_view)}</td>
+                    <td style={tdStyle}>{renderOverrideBadge(item.can_add)}</td>
+                    <td style={tdStyle}>{renderOverrideBadge(item.can_edit)}</td>
+                    <td style={tdStyle}>{renderOverrideBadge(item.can_delete)}</td>
+                    <td style={tdStyle}>{renderOverrideBadge(item.can_export)}</td>
+                    <td style={tdStyle}>{renderOverrideBadge(item.can_print)}</td>
+                    <td style={tdStyle}>{renderOverrideBadge(item.can_manage_access)}</td>
                     <td style={tdStyle}>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         <button

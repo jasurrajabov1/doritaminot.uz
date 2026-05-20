@@ -72,6 +72,54 @@ function getStatusMeta(status) {
   };
 }
 
+function getAdditionalRiskMeta(status) {
+  if (status === "Критик") {
+    return {
+      bg: "#dc2626",
+      color: "#ffffff",
+      text: "Критик",
+    };
+  }
+
+  if (status === "Юқори хавф") {
+    return {
+      bg: "#f97316",
+      color: "#ffffff",
+      text: "Юқори хавф",
+    };
+  }
+
+  if (status === "Огоҳлантириш") {
+    return {
+      bg: "#fef3c7",
+      color: "#92400e",
+      text: "Огоҳлантириш",
+    };
+  }
+
+  if (status === "Тушунарли") {
+    return {
+      bg: "#dbeafe",
+      color: "#1e40af",
+      text: "Тушунарли",
+    };
+  }
+
+  if (status === "Қўшимча йўқ") {
+    return {
+      bg: "#f1f5f9",
+      color: "#475569",
+      text: "Қўшимча йўқ",
+    };
+  }
+
+  return {
+    bg: "#dcfce7",
+    color: "#166534",
+    text: "Норма",
+  };
+}
+
 function DashboardCard({ title, value, hint, onClick }) {
   return (
     <div
@@ -96,7 +144,10 @@ function normalizeInstitutionChart(items) {
   return items.map((row, index) => ({
     id: row?.id ?? index,
     name: firstDefined(row?.name, row?.institution_name, ""),
-    yearly_need: toNumber(row?.yearly_need),
+    inn: firstDefined(row?.inn, row?.institution_inn, ""),
+    yearly_need: toNumber(
+      firstDefined(row?.total_need, row?.total_yearly_need, row?.yearly_need)
+    ),
     issued: toNumber(row?.issued),
     remaining: toNumber(row?.remaining),
   }));
@@ -108,13 +159,35 @@ function normalizeTopCritical(items) {
   return items.map((row, index) => ({
     id: row?.id ?? index,
     institution: firstDefined(row?.institution, ""),
+    institution_inn: firstDefined(row?.institution_inn, row?.inn, ""),
     drug: firstDefined(row?.drug, ""),
     year: firstDefined(row?.year, ""),
-    yearly_need: toNumber(row?.yearly_need),
+    yearly_need: toNumber(
+      firstDefined(row?.total_need, row?.total_yearly_need, row?.yearly_need)
+    ),
     issued_qty: toNumber(row?.issued_qty),
     remaining_qty: toNumber(row?.remaining_qty),
     remaining_percent: toNumber(row?.remaining_percent),
     status: normalizeStatus(row?.status),
+  }));
+}
+
+function normalizeTopAdditionalNeed(items) {
+  if (!Array.isArray(items)) return [];
+
+  return items.map((row, index) => ({
+    id: row?.id ?? index,
+    institution: firstDefined(row?.institution, ""),
+    institution_inn: firstDefined(row?.institution_inn, row?.inn, ""),
+    drug: firstDefined(row?.drug, ""),
+    year: firstDefined(row?.year, ""),
+    base_yearly_need: toNumber(row?.base_yearly_need),
+    additional_need: toNumber(row?.additional_need),
+    additional_need_percent: toNumber(row?.additional_need_percent),
+    addition_count: toNumber(row?.addition_count),
+    addition_reasons: firstDefined(row?.addition_reasons, "—"),
+    additional_risk_status: firstDefined(row?.additional_risk_status, "Норма"),
+    total_need: toNumber(row?.total_need),
   }));
 }
 
@@ -132,6 +205,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [searchText, setSearchText] = useState("");
+  const [filterInn, setFilterInn] = useState("");
   const [selectedYear, setSelectedYear] = useState("");
   const [selectedInstitution, setSelectedInstitution] = useState("");
 
@@ -143,12 +218,23 @@ export default function DashboardPage() {
     drugs: 0,
     need_rows: 0,
     issued_rows: 0,
+    total_need_qty: 0,
+    total_issued_qty: 0,
+    total_remaining_qty: 0,
+    total_need_sum: 0,
+    total_issued_sum: 0,
+    total_remaining_sum: 0,
     critical_positions: 0,
     over_need: 0,
+    total_addition_count: 0,
+    total_additional_need_qty: 0,
+    additional_over_50_positions: 0,
+    additional_risk_positions: 0,
   });
 
   const [institutionChart, setInstitutionChart] = useState([]);
   const [topCriticalDrugs, setTopCriticalDrugs] = useState([]);
+  const [topAdditionalNeed, setTopAdditionalNeed] = useState([]);
 
   const compactHeaderCell = {
     padding: "6px 6px",
@@ -191,6 +277,8 @@ export default function DashboardPage() {
       setError("");
 
       const params = {};
+      if (searchText.trim()) params.search = searchText.trim();
+      if (filterInn.trim()) params.institution_inn = filterInn.trim();
       if (selectedYear) params.year = selectedYear;
       if (selectedInstitution) params.institution = selectedInstitution;
 
@@ -214,6 +302,13 @@ export default function DashboardPage() {
 
         critical_positions: toNumber(serverCards.critical_positions),
         over_need: toNumber(serverCards.over_need),
+
+        total_addition_count: toNumber(serverCards.total_addition_count),
+        total_additional_need_qty: toNumber(serverCards.total_additional_need_qty),
+        additional_over_50_positions: toNumber(
+          serverCards.additional_over_50_positions
+        ),
+        additional_risk_positions: toNumber(serverCards.additional_risk_positions),
       });
 
       setInstitutionChart(
@@ -224,7 +319,17 @@ export default function DashboardPage() {
         normalizeTopCritical(firstDefined(data?.top_critical_drugs, []))
       );
 
-      setYears(Array.isArray(data?.filters?.years) ? data.filters.years : []);
+      setTopAdditionalNeed(
+        normalizeTopAdditionalNeed(firstDefined(data?.top_additional_need, []))
+      );
+
+      const uniqueYears = Array.isArray(data?.filters?.years)
+        ? [...new Set(data.filters.years.map((year) => String(year)))]
+            .sort((a, b) => Number(b) - Number(a))
+        : [];
+
+      setYears(uniqueYears);
+      
       setInstitutions(
         Array.isArray(data?.filters?.institutions) ? data.filters.institutions : []
       );
@@ -234,11 +339,18 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedYear, selectedInstitution]);
+  }, [searchText, filterInn, selectedYear, selectedInstitution]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const clearFilters = () => {
+    setSearchText("");
+    setFilterInn("");
+    setSelectedYear("");
+    setSelectedInstitution("");
+  };
 
   const dashboardCards = useMemo(() => {
     const items = [
@@ -270,8 +382,38 @@ export default function DashboardPage() {
         path: "/monthly-issues",
         visible: canViewPage("monthly_issues"),
       },
+
       {
-        title: "Жами йиллик эҳтиёж",
+        title: "Қўшимча эҳтиёжлар сони",
+        value: formatNumber(cards.total_addition_count),
+        hint: "Журнал ёзувлари",
+        path: "/need-rows",
+        visible: canViewPage("need_rows"),
+      },
+      {
+        title: "Қўшимча эҳтиёж миқдори",
+        value: formatNumber(cards.total_additional_need_qty),
+        hint: "Миқдор бўйича",
+        path: "/need-rows-summary",
+        visible: canViewPage("need_rows_summary"),
+      },
+      {
+        title: "50%+ қўшимча позициялар",
+        value: formatNumber(cards.additional_over_50_positions),
+        hint: "Критик қўшимча",
+        path: "/need-rows-summary",
+        visible: canViewPage("need_rows_summary"),
+      },
+      {
+        title: "Қўшимча хавфли позициялар",
+        value: formatNumber(cards.additional_risk_positions),
+        hint: "30% ва юқори",
+        path: "/need-rows-summary",
+        visible: canViewPage("need_rows_summary"),
+      },
+
+      {
+        title: "Жами умумий эҳтиёж",
         value: formatNumber(cards.total_need_qty),
         hint: "Миқдор бўйича",
         path: "/need-rows-summary",
@@ -292,7 +434,7 @@ export default function DashboardPage() {
         visible: canViewPage("stock_summary"),
       },
       {
-        title: "Жами йиллик сумма",
+        title: "Жами умумий эҳтиёж сумма",
         value: formatNumber(cards.total_need_sum),
         hint: "Сўмда",
         path: "/need-rows-summary",
@@ -338,21 +480,38 @@ export default function DashboardPage() {
       { "Кўрсаткич": "Эҳтиёж қаторлари", "Қиймат": cards.need_rows },
       { "Кўрсаткич": "Берилган миқдор қаторлари", "Қиймат": cards.issued_rows },
 
-      { "Кўрсаткич": "Жами йиллик эҳтиёж", "Қиймат": cards.total_need_qty },
+      { "Кўрсаткич": "Жами умумий эҳтиёж", "Қиймат": cards.total_need_qty },
       { "Кўрсаткич": "Жами берилган миқдор", "Қиймат": cards.total_issued_qty },
       { "Кўрсаткич": "Жами қолдиқ", "Қиймат": cards.total_remaining_qty },
 
-      { "Кўрсаткич": "Жами йиллик сумма", "Қиймат": cards.total_need_sum },
+      { "Кўрсаткич": "Жами умумий эҳтиёж сумма", "Қиймат": cards.total_need_sum },
       { "Кўрсаткич": "Жами берилган сумма", "Қиймат": cards.total_issued_sum },
       { "Кўрсаткич": "Жами қолдиқ сумма", "Қиймат": cards.total_remaining_sum },
 
       { "Кўрсаткич": "Критик позициялар", "Қиймат": cards.critical_positions },
+      {
+        "Кўрсаткич": "Қўшимча эҳтиёжлар сони",
+        "Қиймат": cards.total_addition_count,
+      },
+      {
+        "Кўрсаткич": "Қўшимча эҳтиёж миқдори",
+        "Қиймат": cards.total_additional_need_qty,
+      },
+      {
+        "Кўрсаткич": "50%+ қўшимча позициялар",
+        "Қиймат": cards.additional_over_50_positions,
+      },
+      {
+        "Кўрсаткич": "Қўшимча хавфли позициялар",
+        "Қиймат": cards.additional_risk_positions,
+      },
       { "Кўрсаткич": "Эҳтиёждан ошган", "Қиймат": cards.over_need },
     ];
 
     const institutionSheet = institutionChart.map((row) => ({
       "Муассаса": row.name,
-      "Жами йиллик эҳтиёж": row.yearly_need,
+      "ИНН": row.inn || "",
+      "Жами умумий эҳтиёж": row.yearly_need,
       "Жами берилган": row.issued,
       "Қолдиқ": row.remaining,
     }));
@@ -360,34 +519,87 @@ export default function DashboardPage() {
     const criticalSheet = topCriticalDrugs.map((row, index) => ({
       "№": index + 1,
       "Муассаса": row.institution,
+      "ИНН": row.institution_inn || "",
       "Дори": row.drug,
       "Йил": row.year,
-      "Эҳтиёж": row.yearly_need,
+      "Умумий эҳтиёж": row.yearly_need,
       "Берилган": row.issued_qty,
       "Қолдиқ": row.remaining_qty,
       "Қолдиқ %": row.remaining_percent,
       "Статус": row.status,
     }));
 
+    const additionalSheet = topAdditionalNeed.map((row, index) => ({
+      "№": index + 1,
+      "Муассаса": row.institution,
+      "ИНН": row.institution_inn || "",
+      "Дори": row.drug,
+      "Йил": row.year,
+      "Йил бошидаги эҳтиёж": row.base_yearly_need,
+      "Қўшимча эҳтиёж": row.additional_need,
+      "Қўшимча %": row.additional_need_percent,
+      "Қўшимча сони": row.addition_count,
+      "Асосий сабаблар": row.addition_reasons,
+      "Умумий эҳтиёж": row.total_need,
+      "Статус": row.additional_risk_status,
+    }));
+
+    const cardsWs = XLSX.utils.json_to_sheet(cardsSheet);
+    const institutionWs = XLSX.utils.json_to_sheet(institutionSheet);
+    const criticalWs = XLSX.utils.json_to_sheet(criticalSheet);
+    const additionalWs = XLSX.utils.json_to_sheet(additionalSheet);
+
+    cardsWs["!cols"] = [
+      { wch: 28 },
+      { wch: 20 },
+    ];
+
+    institutionWs["!cols"] = [
+      { wch: 35 },
+      { wch: 14 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 18 },
+    ];
+
+    criticalWs["!cols"] = [
+      { wch: 6 },
+      { wch: 35 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 10 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 16 },
+    ];
+
+    additionalWs["!cols"] = [
+      { wch: 6 },
+      { wch: 35 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 10 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 35 },
+      { wch: 18 },
+      { wch: 16 },
+    ];
+
     const workbook = XLSX.utils.book_new();
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(cardsSheet),
-      "Dashboard"
-    );
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(institutionSheet),
-      "Muassasa_jami"
-    );
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(criticalSheet),
-      "Top_critical"
-    );
+    XLSX.utils.book_append_sheet(workbook, cardsWs, "Dashboard");
+    XLSX.utils.book_append_sheet(workbook, institutionWs, "Muassasa_jami");
+    XLSX.utils.book_append_sheet(workbook, criticalWs, "Top_critical");
+    XLSX.utils.book_append_sheet(workbook, additionalWs, "Top_additional_need");
 
     const parts = ["DashboardSummary"];
+    if (searchText.trim()) parts.push(`search_${searchText.trim()}`);
+    if (filterInn.trim()) parts.push(`inn_${filterInn.trim()}`);
     if (selectedYear) parts.push(`year_${selectedYear}`);
     if (selectedInstitution) parts.push(`inst_${selectedInstitution}`);
 
@@ -515,12 +727,31 @@ export default function DashboardPage() {
         <div style={styles.panelTitle}>Фильтр</div>
 
         <div style={styles.filterRow}>
+          <input
+            type="text"
+            style={styles.filterControl}
+            placeholder="Қидириш: муассаса, ИНН ёки дори"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+
+          <input
+            type="text"
+            inputMode="numeric"
+            style={styles.filterControl}
+            placeholder="Фильтр: ИНН"
+            value={filterInn}
+            onChange={(e) =>
+              setFilterInn(e.target.value.replace(/\D/g, "").slice(0, 9))
+            }
+          />
           <select
             style={styles.filterControl}
             value={selectedYear}
             onChange={(e) => setSelectedYear(e.target.value)}
           >
-            {Array.from(new Set(years)).map((year) => (
+            <option value="">Барча йиллар</option>
+            {years.map((year) => (
               <option key={`year-${year}`} value={year}>
                 {year}
               </option>
@@ -536,16 +767,11 @@ export default function DashboardPage() {
             {institutions.map((inst) => (
               <option key={inst.id} value={inst.id}>
                 {inst.name}
+                {inst.inn ? ` (${inst.inn})` : ""}
               </option>
             ))}
           </select>
-          <button
-            style={styles.smallButton}
-            onClick={() => {
-              setSelectedYear("");
-              setSelectedInstitution("");
-            }}
-          >
+          <button style={styles.smallButton} onClick={clearFilters}>
             Тозалаш
           </button>
         </div>
@@ -583,7 +809,8 @@ export default function DashboardPage() {
                   <thead>
                     <tr>
                       <th style={compactHeaderCell}>Муассаса</th>
-                      <th style={compactHeaderCell}>Жами йиллик эҳтиёж</th>
+                      <th style={compactHeaderCell}>ИНН</th>
+                      <th style={compactHeaderCell}>Жами умумий эҳтиёж</th>
                       <th style={compactHeaderCell}>Жами берилган</th>
                       <th style={compactHeaderCell}>Қолдиқ</th>
                     </tr>
@@ -592,6 +819,7 @@ export default function DashboardPage() {
                     {institutionChart.map((row) => (
                       <tr key={row.id} style={styles.tr}>
                         <td style={wrapCell}>{row.name}</td>
+                        <td style={nowrapCell}>{row.inn || "—"}</td>
                         <td style={nowrapCell}>{formatNumber(row.yearly_need)}</td>
                         <td style={nowrapCell}>{formatNumber(row.issued)}</td>
                         <td style={nowrapCell}>{formatNumber(row.remaining)}</td>
@@ -602,7 +830,95 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+          <div style={styles.panel} className="dashboard-panel">
+            <div style={styles.tableHeader}>
+              <div style={styles.panelTitle}>
+                Қўшимча эҳтиёж бўйича энг хавфли 10 та позиция
+              </div>
+              {canViewNeedRows ? (
+                <button
+                  style={styles.secondaryButton}
+                  className="dashboard-print-hide"
+                  onClick={() => navigate("/need-rows")}
+                >
+                  Эҳтиёжларга ўтиш
+                </button>
+              ) : null}
+            </div>
 
+            {topAdditionalNeed.length === 0 ? (
+              <div style={styles.emptyBox}>
+                Қўшимча эҳтиёж бўйича хавфли позициялар ҳозирча йўқ.
+              </div>
+            ) : (
+              <div style={styles.tableWrap} className="dashboard-table-wrap">
+                <table
+                  style={{ ...styles.table, minWidth: 0, tableLayout: "auto" }}
+                  className="dashboard-table"
+                >
+                  <thead>
+                    <tr>
+                      <th style={compactHeaderCell}>№</th>
+                      <th style={compactHeaderCell}>Муассаса</th>
+                      <th style={compactHeaderCell}>ИНН</th>
+                      <th style={compactHeaderCell}>Дори</th>
+                      <th style={compactHeaderCell}>Йил</th>
+                      <th style={compactHeaderCell}>Йил бошидаги эҳтиёж</th>
+                      <th style={compactHeaderCell}>Қўшимча эҳтиёж</th>
+                      <th style={compactHeaderCell}>Қўшимча %</th>
+                      <th style={compactHeaderCell}>Қўшимча сони</th>
+                      <th style={compactHeaderCell}>Асосий сабаблар</th>
+                      <th style={compactHeaderCell}>Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topAdditionalNeed.map((row, index) => {
+                      const riskMeta = getAdditionalRiskMeta(
+                        row.additional_risk_status
+                      );
+
+                      return (
+                        <tr
+                          key={`${row.institution}-${row.drug}-${row.year}-additional-${index}`}
+                          style={styles.tr}
+                        >
+                          <td style={nowrapCell}>{index + 1}</td>
+                          <td style={wrapCell}>{row.institution}</td>
+                          <td style={nowrapCell}>{row.institution_inn || "—"}</td>
+                          <td style={wrapCell}>{row.drug}</td>
+                          <td style={nowrapCell}>{row.year}</td>
+                          <td style={nowrapCell}>
+                            {formatNumber(row.base_yearly_need)}
+                          </td>
+                          <td style={nowrapCell}>
+                            {formatNumber(row.additional_need)}
+                          </td>
+                          <td style={nowrapCell}>
+                            {formatNumber(row.additional_need_percent)}%
+                          </td>
+                          <td style={nowrapCell}>
+                            {formatNumber(row.addition_count)}
+                          </td>
+                          <td style={wrapCell}>{row.addition_reasons || "—"}</td>
+                          <td style={nowrapCell}>
+                            <span
+                              style={{
+                                ...styles.badge,
+                                backgroundColor: riskMeta.bg,
+                                color: riskMeta.color,
+                              }}
+                            >
+                              {riskMeta.text}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
           <div style={styles.panel} className="dashboard-panel">
             <div style={styles.tableHeader}>
               <div style={styles.panelTitle}>Энг критик 10 та позиция</div>
@@ -629,9 +945,10 @@ export default function DashboardPage() {
                     <tr>
                       <th style={compactHeaderCell}>№</th>
                       <th style={compactHeaderCell}>Муассаса</th>
+                      <th style={compactHeaderCell}>ИНН</th>
                       <th style={compactHeaderCell}>Дори</th>
                       <th style={compactHeaderCell}>Йил</th>
-                      <th style={compactHeaderCell}>Эҳтиёж</th>
+                      <th style={compactHeaderCell}>Умумий эҳтиёж</th>
                       <th style={compactHeaderCell}>Берилган</th>
                       <th style={compactHeaderCell}>Қолдиқ</th>
                       <th style={compactHeaderCell}>Қолдиқ %</th>
@@ -649,6 +966,7 @@ export default function DashboardPage() {
                         >
                           <td style={nowrapCell}>{index + 1}</td>
                           <td style={wrapCell}>{row.institution}</td>
+                          <td style={nowrapCell}>{row.institution_inn || "—"}</td>
                           <td style={wrapCell}>{row.drug}</td>
                           <td style={nowrapCell}>{row.year}</td>
                           <td style={nowrapCell}>{formatNumber(row.yearly_need)}</td>

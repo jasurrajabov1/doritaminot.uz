@@ -57,12 +57,13 @@ export const PAGE_REGISTRY = [
     label: "Эҳтиёжлар сводкаси",
     component: NeedRowsSummaryPage,
   },
-  {
+
+{
     code: "access_management",
     path: "/access-management",
     label: "Фойдаланувчилар ва доступ",
     component: AccessManagementPage,
-  },
+  }
 ];
 
 export const PAGE_PATH_MAP = Object.fromEntries(

@@ -15,6 +15,7 @@ from .models import (
     Drug,
     Institution,
     MonthlyIssue,
+    NeedAddition,
     NeedRow,
     PagePermission,
     Price,
@@ -77,6 +78,139 @@ class AuthAccessSmokeTests(APITestCase):
         self.assertEqual(response.data["user"]["username"], "operator")
         self.assertIn("institutions", response.data["user"]["permissions"])
         self.assertTrue(response.data["user"]["permissions"]["institutions"]["view"])
+
+    def test_stock_summary_api_returns_and_filters_by_institution_inn(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution = Institution.objects.create(
+            name="StockSummary INN institution",
+            inn="444555666",
+            address="Test address",
+            is_active=True,
+        )
+
+        drug = Drug.objects.create(
+            name="StockSummary INN drug",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        NeedRow.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            dpm_need=Decimal("10"),
+            amb_rec_need=Decimal("5"),
+        )
+
+        MonthlyIssue.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            issued_qty=Decimal("4"),
+        )
+
+        response = self.client.get(
+            reverse("stock-summary"),
+            {"institution_inn": "444555666"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+
+        row = response.data[0]
+        self.assertEqual(row["institution_id"], institution.id)
+        self.assertEqual(row["institution_name"], "StockSummary INN institution")
+        self.assertEqual(row["institution_inn"], "444555666")
+        self.assertEqual(row["drug_id"], drug.id)
+        self.assertEqual(row["drug_name"], "StockSummary INN drug")
+        self.assertEqual(row["year"], 2026)
+        self.assertEqual(row["yearly_need"], 15.0)
+        self.assertEqual(row["issued_qty"], 4.0)
+        self.assertEqual(row["remaining_qty"], 11.0)
+
+        search_response = self.client.get(
+            reverse("stock-summary"),
+            {"search": "444555666"},
+        )
+
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual(len(search_response.data), 1)
+        self.assertEqual(search_response.data[0]["institution_inn"], "444555666")
+
+    def test_need_rows_summary_api_returns_and_filters_by_institution_inn(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution = Institution.objects.create(
+            name="NeedRowsSummary INN institution",
+            inn="555666777",
+            address="Test address",
+            is_active=True,
+        )
+
+        drug = Drug.objects.create(
+            name="NeedRowsSummary INN drug",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        Price.objects.create(
+            drug=drug,
+            price=Decimal("100"),
+            start_date=date(2026, 1, 1),
+            is_active=True,
+        )
+
+        NeedRow.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            dpm_need=Decimal("10"),
+            amb_rec_need=Decimal("5"),
+        )
+
+        MonthlyIssue.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            issued_qty=Decimal("4"),
+        )
+
+        response = self.client.get(
+            reverse("need-rows-summary"),
+            {"institution_inn": "555666777"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+
+        row = response.data[0]
+        self.assertEqual(row["institution_id"], institution.id)
+        self.assertEqual(row["institution_name"], "NeedRowsSummary INN institution")
+        self.assertEqual(row["institution_inn"], "555666777")
+        self.assertEqual(row["drug_id"], drug.id)
+        self.assertEqual(row["drug_name"], "NeedRowsSummary INN drug")
+        self.assertEqual(row["year"], 2026)
+        self.assertEqual(row["total_yearly_need"], 15.0)
+        self.assertEqual(row["total_given_dpm"], 4.0)
+        self.assertEqual(row["total_remaining"], 11.0)
+        self.assertEqual(row["price"], 100.0)
+        self.assertEqual(row["yearly_sum"], 1500.0)
+        self.assertEqual(row["given_sum"], 400.0)
+        self.assertEqual(row["remaining_sum"], 1100.0)
+
+        search_response = self.client.get(
+            reverse("need-rows-summary"),
+            {"search": "555666777"},
+        )
+
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual(len(search_response.data), 1)
+        self.assertEqual(search_response.data[0]["institution_inn"], "555666777")
 
     def test_page_permission_is_checked_on_api_level(self):
         login_response = self.client.post(
@@ -318,6 +452,399 @@ class AuthAccessSmokeTests(APITestCase):
         self.assertGreaterEqual(cards["total_need_sum"], 15000)
         self.assertGreaterEqual(cards["total_issued_sum"], 4000)
         self.assertGreaterEqual(cards["total_remaining_sum"], 11000)
+
+    def test_need_addition_updates_summary_stock_and_dashboard(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution = Institution.objects.create(
+            name="Additional need test institution",
+            inn="909090909",
+            address="Test address",
+            is_active=True,
+        )
+
+        drug = Drug.objects.create(
+            name="Additional need test drug",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        Price.objects.create(
+            drug=drug,
+            price=Decimal("100"),
+            start_date=date(2026, 1, 1),
+            is_active=True,
+        )
+
+        NeedRow.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            dpm_need=Decimal("10"),
+            amb_rec_need=Decimal("0"),
+        )
+
+        NeedAddition.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            added_qty=Decimal("8"),
+            addition_date=date(2026, 5, 10),
+            reason="Беморлар сони ошган",
+            doc_number="N11",
+            doc_date=date(2026, 5, 8),
+            created_by=self.superuser,
+        )
+
+        MonthlyIssue.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            issued_qty=Decimal("8.8"),
+        )
+
+        summary_response = self.client.get(
+            reverse("need-rows-summary"),
+            {"year": 2026, "institution": institution.id},
+        )
+
+        self.assertEqual(summary_response.status_code, 200)
+        self.assertEqual(len(summary_response.data), 1)
+
+        summary_row = summary_response.data[0]
+        self.assertEqual(summary_row["base_yearly_need"], 10.0)
+        self.assertEqual(summary_row["additional_need"], 8.0)
+        self.assertEqual(summary_row["total_yearly_need"], 18.0)
+        self.assertEqual(summary_row["total_need"], 18.0)
+        self.assertEqual(summary_row["total_remaining"], 9.2)
+        self.assertEqual(summary_row["addition_count"], 1)
+        self.assertEqual(summary_row["additional_need_percent"], 80.0)
+        self.assertEqual(summary_row["total_need_sum"], 1800.0)
+        self.assertEqual(summary_row["given_sum"], 880.0)
+        self.assertEqual(summary_row["remaining_sum"], 920.0)
+
+        stock_response = self.client.get(
+            reverse("stock-summary"),
+            {"year": 2026, "institution": institution.id},
+        )
+
+        self.assertEqual(stock_response.status_code, 200)
+        self.assertEqual(len(stock_response.data), 1)
+
+        stock_row = stock_response.data[0]
+        self.assertEqual(stock_row["yearly_need"], 10.0)
+        self.assertEqual(stock_row["additional_need"], 8.0)
+        self.assertEqual(stock_row["total_need"], 18.0)
+        self.assertEqual(stock_row["issued_qty"], 8.8)
+        self.assertEqual(stock_row["remaining_qty"], 9.2)
+        self.assertEqual(stock_row["addition_count"], 1)
+
+        dashboard_response = self.client.get(
+            reverse("dashboard-summary"),
+            {"year": 2026, "institution": institution.id},
+        )
+
+        self.assertEqual(dashboard_response.status_code, 200)
+
+        cards = dashboard_response.data["cards"]
+        self.assertEqual(cards["total_need_qty"], 18.0)
+        self.assertEqual(cards["total_issued_qty"], 8.8)
+        self.assertEqual(cards["total_remaining_qty"], 9.2)
+        self.assertEqual(cards["total_addition_count"], 1)
+        self.assertEqual(cards["total_additional_need_qty"], 8.0)
+        self.assertEqual(cards["additional_over_50_positions"], 1)
+        self.assertEqual(cards["additional_risk_positions"], 1)
+
+        top_additional = dashboard_response.data["top_additional_need"]
+        self.assertEqual(len(top_additional), 1)
+        self.assertEqual(top_additional[0]["institution_inn"], "909090909")
+        self.assertEqual(top_additional[0]["base_yearly_need"], 10.0)
+        self.assertEqual(top_additional[0]["additional_need"], 8.0)
+        self.assertEqual(top_additional[0]["additional_need_percent"], 80.0)
+        self.assertEqual(top_additional[0]["additional_risk_status"], "Критик")
+
+
+    def test_monthly_issue_limit_uses_total_need_with_additions(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution = Institution.objects.create(
+            name="Monthly issue additional limit institution",
+            inn="808080808",
+            address="Test address",
+            is_active=True,
+        )
+
+        drug = Drug.objects.create(
+            name="Monthly issue additional limit drug",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        NeedRow.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            dpm_need=Decimal("10"),
+            amb_rec_need=Decimal("0"),
+        )
+
+        NeedAddition.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            added_qty=Decimal("5"),
+            addition_date=date(2026, 5, 10),
+            reason="Янги бўлим очилди",
+            created_by=self.superuser,
+        )
+
+        ok_response = self.client.post(
+            reverse("monthly-issues-list"),
+            {
+                "institution": institution.id,
+                "drug": drug.id,
+                "year": 2026,
+                "issued_qty": "15",
+            },
+            format="json",
+        )
+
+        self.assertEqual(ok_response.status_code, 201)
+
+        blocked_response = self.client.post(
+            reverse("monthly-issues-list"),
+            {
+                "institution": institution.id,
+                "drug": drug.id,
+                "year": 2026,
+                "issued_qty": "0.001",
+            },
+            format="json",
+        )
+
+        self.assertEqual(blocked_response.status_code, 400)
+        self.assertIn("issued_qty", blocked_response.data)
+
+    def test_need_addition_permissions_follow_need_rows_page_permission(self):
+        PagePermission.objects.update_or_create(
+            role=self.role,
+            page_code="need_rows",
+            defaults={
+                "can_view": True,
+                "can_add": False,
+                "can_edit": False,
+                "can_delete": False,
+                "can_export": False,
+                "can_print": False,
+            },
+        )
+
+        institution = Institution.objects.create(
+            name="Need addition permission institution",
+            inn="707070707",
+            address="Test address",
+            is_active=True,
+        )
+
+        drug = Drug.objects.create(
+            name="Need addition permission drug",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        NeedRow.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            dpm_need=Decimal("10"),
+            amb_rec_need=Decimal("0"),
+        )
+
+        login_response = self.client.post(
+            reverse("auth-login"),
+            {"username": "operator", "password": "StrongPass123!"},
+            format="json",
+        )
+
+        token = login_response.data["token"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token}")
+
+        list_response = self.client.get(reverse("need-additions-list"))
+        self.assertEqual(list_response.status_code, 200)
+
+        denied_create_response = self.client.post(
+            reverse("need-additions-list"),
+            {
+                "institution": institution.id,
+                "drug": drug.id,
+                "year": 2026,
+                "added_qty": "3",
+                "addition_date": "2026-05-10",
+                "reason": "Permission test",
+                "doc_number": "PERM-1",
+                "doc_date": "2026-05-10",
+            },
+            format="json",
+        )
+
+        self.assertEqual(denied_create_response.status_code, 403)
+
+        UserPagePermissionOverride.objects.create(
+            user=self.user,
+            page_code="need_rows",
+            can_add=True,
+        )
+
+        allowed_create_response = self.client.post(
+            reverse("need-additions-list"),
+            {
+                "institution": institution.id,
+                "drug": drug.id,
+                "year": 2026,
+                "added_qty": "3",
+                "addition_date": "2026-05-10",
+                "reason": "Permission test",
+                "doc_number": "PERM-1",
+                "doc_date": "2026-05-10",
+            },
+            format="json",
+        )
+
+        self.assertEqual(allowed_create_response.status_code, 201)
+
+        addition_id = allowed_create_response.data["id"]
+
+        denied_update_response = self.client.patch(
+            reverse("need-additions-detail", args=[addition_id]),
+            {"added_qty": "4"},
+            format="json",
+        )
+
+        self.assertEqual(denied_update_response.status_code, 403)
+
+        denied_delete_response = self.client.delete(
+            reverse("need-additions-detail", args=[addition_id])
+        )
+
+        self.assertEqual(denied_delete_response.status_code, 403)
+
+    def test_dashboard_summary_filters_by_institution_inn_and_returns_inn(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution_1 = Institution.objects.create(
+            name="Dashboard INN institution 1",
+            inn="777888999",
+            address="Test address 1",
+            is_active=True,
+        )
+
+        institution_2 = Institution.objects.create(
+            name="Dashboard INN institution 2",
+            inn="111222333",
+            address="Test address 2",
+            is_active=True,
+        )
+
+        drug_1 = Drug.objects.create(
+            name="Dashboard INN drug 1",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        drug_2 = Drug.objects.create(
+            name="Dashboard INN drug 2",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        Price.objects.create(
+            drug=drug_1,
+            price=Decimal("100"),
+            start_date=date(2026, 1, 1),
+            is_active=True,
+        )
+
+        Price.objects.create(
+            drug=drug_2,
+            price=Decimal("200"),
+            start_date=date(2026, 1, 1),
+            is_active=True,
+        )
+
+        NeedRow.objects.create(
+            institution=institution_1,
+            drug=drug_1,
+            year=2026,
+            dpm_need=Decimal("10"),
+            amb_rec_need=Decimal("5"),
+        )
+
+        NeedRow.objects.create(
+            institution=institution_2,
+            drug=drug_2,
+            year=2026,
+            dpm_need=Decimal("100"),
+            amb_rec_need=Decimal("50"),
+        )
+
+        MonthlyIssue.objects.create(
+            institution=institution_1,
+            drug=drug_1,
+            year=2026,
+            issued_qty=Decimal("4"),
+        )
+
+        MonthlyIssue.objects.create(
+            institution=institution_2,
+            drug=drug_2,
+            year=2026,
+            issued_qty=Decimal("20"),
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary"),
+            {"institution_inn": "777888999"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        cards = response.data["cards"]
+        self.assertEqual(cards["institutions"], 1)
+        self.assertEqual(cards["drugs"], 1)
+        self.assertEqual(cards["need_rows"], 1)
+        self.assertEqual(cards["issued_rows"], 1)
+
+        self.assertEqual(cards["total_need_qty"], 15.0)
+        self.assertEqual(cards["total_issued_qty"], 4.0)
+        self.assertEqual(cards["total_remaining_qty"], 11.0)
+
+        self.assertEqual(cards["total_need_sum"], 1500.0)
+        self.assertEqual(cards["total_issued_sum"], 400.0)
+        self.assertEqual(cards["total_remaining_sum"], 1100.0)
+
+        self.assertEqual(response.data["institution_chart"][0]["inn"], "777888999")
+        self.assertEqual(response.data["top_critical_drugs"][0]["institution_inn"], "777888999")
+        self.assertEqual(
+            response.data["filters"]["selected_institution_inn"],
+            "777888999",
+        )
+
+        search_response = self.client.get(
+            reverse("dashboard-summary"),
+            {"search": "777888999"},
+        )
+
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual(search_response.data["cards"]["institutions"], 1)
+        self.assertEqual(search_response.data["institution_chart"][0]["inn"], "777888999")
 
     def test_dashboard_summary_filters_by_institution_and_calculates_amounts_exactly(self):
         token = Token.objects.create(user=self.superuser)
@@ -760,6 +1287,47 @@ class AuthAccessSmokeTests(APITestCase):
         self.assertEqual(float(need_row.yearly_need), 10.0)
         self.assertEqual(float(need_row.quarterly_need), 2.5)
 
+    def test_need_row_api_returns_and_filters_by_institution_inn(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution = Institution.objects.create(
+            name="NeedRow INN institution",
+            inn="222333444",
+            address="Test address",
+            is_active=True,
+        )
+
+        drug = Drug.objects.create(
+            name="NeedRow INN drug",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        NeedRow.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            dpm_need=Decimal("6"),
+            amb_rec_need=Decimal("4"),
+        )
+
+        response = self.client.get(
+            reverse("need-rows-list"),
+            {"institution_inn": "222333444"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+
+        row = response.data[0]
+        self.assertEqual(row["institution"], institution.id)
+        self.assertEqual(row["institution_name"], "NeedRow INN institution")
+        self.assertEqual(row["institution_inn"], "222333444")
+        self.assertEqual(row["drug_name"], "NeedRow INN drug")
+
+
     def test_need_row_duplicate_is_blocked(self):
         token = Token.objects.create(user=self.superuser)
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
@@ -858,6 +1426,66 @@ class AuthAccessSmokeTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_monthly_issue_api_returns_and_filters_by_institution_inn(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        institution = Institution.objects.create(
+            name="MonthlyIssue INN institution",
+            inn="333444555",
+            address="Test address",
+            is_active=True,
+        )
+
+        drug = Drug.objects.create(
+            name="MonthlyIssue INN drug",
+            unit="dona",
+            manufacturer="Test",
+            is_active=True,
+        )
+
+        NeedRow.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            dpm_need=Decimal("10"),
+            amb_rec_need=Decimal("5"),
+        )
+
+        MonthlyIssue.objects.create(
+            institution=institution,
+            drug=drug,
+            year=2026,
+            issued_qty=Decimal("4"),
+        )
+
+        response = self.client.get(
+            reverse("monthly-issues-list"),
+            {"institution_inn": "333444555"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+
+        row = response.data[0]
+        self.assertEqual(row["institution"], institution.id)
+        self.assertEqual(row["institution_name"], "MonthlyIssue INN institution")
+        self.assertEqual(row["institution_inn"], "333444555")
+        self.assertEqual(row["drug"], drug.id)
+        self.assertEqual(row["drug_name"], "MonthlyIssue INN drug")
+        self.assertEqual(row["year"], 2026)
+        self.assertEqual(float(row["issued_qty"]), 4.0)
+
+        search_response = self.client.get(
+            reverse("monthly-issues-list"),
+            {"search": "333444555"},
+        )
+
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual(len(search_response.data), 1)
+        self.assertEqual(search_response.data[0]["institution_inn"], "333444555")
+
 
     def test_add_permission_is_checked_on_api_level(self):
         PagePermission.objects.update_or_create(
@@ -1147,6 +1775,95 @@ class AuthAccessSmokeTests(APITestCase):
                 description="Муассаса қўшилди.",
             ).exists()
         )
+
+    def test_institution_api_accepts_and_filters_by_inn(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        create_response = self.client.post(
+            reverse("institutions-list"),
+            {
+                "name": "INN test institution",
+                "inn": "123456789",
+                "address": "INN test address",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(create_response.status_code, 201)
+        self.assertEqual(create_response.data["inn"], "123456789")
+
+        response = self.client.get(
+            reverse("institutions-list"),
+            {"inn": "123456789"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            any(item["inn"] == "123456789" for item in response.data)
+        )
+
+    def test_institution_api_rejects_invalid_inn(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        response = self.client.post(
+            reverse("institutions-list"),
+            {
+                "name": "Invalid INN institution",
+                "inn": "12345",
+                "address": "Test address",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("inn", response.data)
+
+    def test_institution_api_rejects_duplicate_inn(self):
+        token = Token.objects.create(user=self.superuser)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+        Institution.objects.create(
+            name="First INN institution",
+            inn="987654321",
+            address="First address",
+            is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("institutions-list"),
+            {
+                "name": "Second INN institution",
+                "inn": "987654321",
+                "address": "Second address",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("inn", response.data)
+
+    def test_institution_model_blocks_duplicate_inn_when_filled(self):
+        Institution.objects.create(
+            name="DB INN institution 1",
+            inn="111222333",
+            address="Address 1",
+            is_active=True,
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Institution.objects.create(
+                    name="DB INN institution 2",
+                    inn="111222333",
+                    address="Address 2",
+                    is_active=True,
+                )
+
 
     def test_role_create_writes_audit_log(self):
         token = Token.objects.create(user=self.superuser)

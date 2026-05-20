@@ -25,6 +25,26 @@ export default function PermissionsSection({
   handlePermissionDelete,
   permissionDeletingId,
 }) {
+
+  const getBadgeStyle = (value) => ({
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: "44px",
+    padding: "3px 8px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+    background: value ? "#dcfce7" : "#f1f5f9",
+    color: value ? "#166534" : "#475569",
+    border: value ? "1px solid #bbf7d0" : "1px solid #e2e8f0",
+  });
+
+  const renderYesNoBadge = (value) => (
+    <span style={getBadgeStyle(Boolean(value))}>{yesNo(value)}</span>
+  );
+
   return (
     <>
       <div className="form-card" style={{ marginBottom: "16px" }}>
@@ -239,13 +259,13 @@ export default function PermissionsSection({
                     <td style={tdStyle}>{item.id}</td>
                     <td style={tdStyle}>{item.role_name}</td>
                     <td style={tdStyle}>{item.page_label}</td>
-                    <td style={tdStyle}>{yesNo(item.can_view)}</td>
-                    <td style={tdStyle}>{yesNo(item.can_add)}</td>
-                    <td style={tdStyle}>{yesNo(item.can_edit)}</td>
-                    <td style={tdStyle}>{yesNo(item.can_delete)}</td>
-                    <td style={tdStyle}>{yesNo(item.can_export)}</td>
-                    <td style={tdStyle}>{yesNo(item.can_print)}</td>
-                    <td style={tdStyle}>{yesNo(item.can_manage_access)}</td>
+                    <td style={tdStyle}>{renderYesNoBadge(item.can_view)}</td>
+                    <td style={tdStyle}>{renderYesNoBadge(item.can_add)}</td>
+                    <td style={tdStyle}>{renderYesNoBadge(item.can_edit)}</td>
+                    <td style={tdStyle}>{renderYesNoBadge(item.can_delete)}</td>
+                    <td style={tdStyle}>{renderYesNoBadge(item.can_export)}</td>
+                    <td style={tdStyle}>{renderYesNoBadge(item.can_print)}</td>
+                    <td style={tdStyle}>{renderYesNoBadge(item.can_manage_access)}</td>
                     <td style={tdStyle}>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         <button

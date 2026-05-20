@@ -692,3 +692,644 @@ button.primary:hover {
   margin: 0 auto;
   text-align: center;
 }
+
+/* NEED_ROWS_COMPACT_STICKY_LAYOUT_V1 */
+/* Эҳтиёж қаторлари: юқори блокни ихчамлаштириш ва жадвал сарлавҳасини қотириш */
+
+.needrows-page {
+  padding: 16px;
+}
+
+.needrows-page h2 {
+  margin-bottom: 6px;
+  font-size: 24px;
+}
+
+.needrows-page > p {
+  margin-top: 0 !important;
+  margin-bottom: 10px !important;
+}
+
+.needrows-page .form-card {
+  padding: 12px;
+  margin-top: 10px !important;
+  border-radius: 12px;
+}
+
+.needrows-page .form-card h3 {
+  margin-top: 0 !important;
+  margin-bottom: 8px !important;
+  font-size: 16px;
+}
+
+.needrows-page .form-card p {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.needrows-page .form-row,
+.needrows-page .filter-row,
+.needrows-page .filters-row {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.needrows-page input,
+.needrows-page select,
+.needrows-page textarea {
+  padding: 7px 9px;
+  min-height: 34px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.needrows-page button {
+  padding: 7px 10px;
+  min-height: 34px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.needrows-page .actions-cell {
+  gap: 6px;
+}
+
+/* Асосий жадвал энди ўзининг вертикал scroll'ига эга */
+.needrows-main-table-wrap {
+  max-height: min(72vh, 740px);
+  overflow: auto !important;
+  overscroll-behavior: contain;
+  margin-top: 10px;
+  border-radius: 12px;
+}
+
+/* Асосий жадвал сарлавҳаси scroll пайтида тепада қотиб туради */
+.needrows-main-table-wrap .grid-table thead th {
+  position: sticky !important;
+  top: 0;
+  z-index: 30 !important;
+  background: #eef2f7 !important;
+  box-shadow: 0 1px 0 #cbd5e1;
+}
+
+/* Checkbox / биринчи устун ҳам сарлавҳа устида тўғри кўринсин */
+.needrows-main-table-wrap .grid-table thead th:first-child {
+  z-index: 35 !important;
+}
+
+.needrows-data-table th,
+.needrows-data-table td {
+  padding: 7px 6px !important;
+  font-size: 12px !important;
+}
+
+.needrows-data-table tbody td {
+  height: 30px;
+}
+
+/* Қўшимча эҳтиёжлар тарихи ҳам жуда узун бўлса, ўз ичида scroll бўлади */
+#need-additions-history {
+  max-height: min(52vh, 540px);
+  overflow: auto !important;
+}
+
+#need-additions-history .grid-table thead th {
+  position: sticky !important;
+  top: 0;
+  z-index: 20 !important;
+  background: #eef2f7 !important;
+}
+
+/* Устун танлаш блоки кўп очилганда саҳифани босиб кетмасин */
+.needrows-page [style*="gridTemplateColumns"] {
+  max-height: 260px;
+  overflow: auto;
+}
+
+/* Кичик экранларда тепадаги жой яна ҳам қисқаради */
+@media (max-width: 900px) {
+  .needrows-page {
+    padding: 12px;
+  }
+
+  .needrows-page .form-card {
+    padding: 10px;
+  }
+
+  .needrows-main-table-wrap {
+    max-height: 68vh;
+  }
+}
+
+/* Print пайтида scroll чекловлари олиб ташланади */
+@media print {
+  .needrows-main-table-wrap,
+  #need-additions-history {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+/* /NEED_ROWS_COMPACT_STICKY_LAYOUT_V1 */
+
+
+/* NEEDROWS_COLLAPSIBLE_TOP_V1 */
+.needrows-compact-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 35;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(6px);
+}
+
+.needrows-compact-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 220px;
+}
+
+.needrows-compact-title strong {
+  color: #0f172a;
+}
+
+.needrows-compact-title span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.needrows-compact-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.needrows-compact-actions button {
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: 9px;
+}
+
+.needrows-top-panel-collapsed > .form-card,
+.needrows-top-panel-collapsed > .filter-row,
+.needrows-top-panel-collapsed > .filters-row {
+  display: none !important;
+}
+
+.needrows-filters-collapsed > .needrows-filter-card {
+  display: none !important;
+}
+
+.needrows-columns-collapsed > .needrows-column-tools-card {
+  display: none !important;
+}
+
+.needrows-history-collapsed #need-additions-history {
+  display: none !important;
+}
+
+.needrows-page-layout .table-wrap {
+  scroll-margin-top: 76px;
+}
+
+@media print {
+  .needrows-compact-toolbar {
+    display: none !important;
+  }
+}
+/* /NEEDROWS_COLLAPSIBLE_TOP_V1 */
+
+
+/* NEEDROWS_ADVANCED_COLLAPSE_V2 */
+.needrows-compact-toolbar-v2 {
+  padding: 7px 9px;
+  margin: 8px 0 10px;
+  min-height: auto;
+}
+
+.needrows-compact-toolbar-v2 .needrows-compact-title {
+  gap: 1px;
+}
+
+.needrows-compact-toolbar-v2 .needrows-compact-title strong {
+  font-size: 13px;
+}
+
+.needrows-compact-toolbar-v2 .needrows-compact-title span {
+  font-size: 11px;
+}
+
+.needrows-compact-toolbar-v2 .needrows-compact-actions {
+  gap: 6px;
+}
+
+.needrows-compact-toolbar-v2 .needrows-compact-actions button {
+  padding: 6px 9px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+
+.needrows-compact-toolbar-v2 .needrows-compact-actions button.is-on {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.needrows-compact-toolbar-v2 .needrows-compact-actions button.is-off {
+  background: #ffffff;
+  color: #64748b;
+}
+
+.needrows-compact-toolbar-v2 .needrows-compact-actions button.mode-active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.needrows-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: #e2e8f0;
+  display: inline-block;
+  margin: 0 2px;
+}
+
+.needrows-top-panel-collapsed > h1,
+.needrows-top-panel-collapsed > .page-title {
+  display: none !important;
+}
+
+.needrows-top-panel-collapsed > h1 + p,
+.needrows-top-panel-collapsed > .page-title + p {
+  display: none !important;
+}
+
+.needrows-top-panel-collapsed .needrows-compact-toolbar-v2 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.needrows-top-panel-collapsed {
+  padding-top: 12px;
+}
+
+.needrows-top-panel-collapsed .table-wrap,
+.needrows-top-panel-collapsed .needrows-main-table-wrap {
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .needrows-compact-toolbar-v2 {
+    align-items: flex-start;
+  }
+
+  .needrows-compact-toolbar-v2 .needrows-compact-actions button {
+    padding: 6px 8px;
+  }
+
+  .needrows-toolbar-divider {
+    display: none;
+  }
+}
+/* /NEEDROWS_ADVANCED_COLLAPSE_V2 */
+
+
+/* NEEDROWS_TABLE_FOCUS_MODE_V1 */
+/* /need-rows Жадвал режими: максимал экран, камроқ юқори блок, кўпроқ қатор */
+body.needrows-table-focus {
+  overflow: hidden;
+}
+
+body.needrows-table-focus #root {
+  max-width: none;
+  width: 100%;
+  padding: 6px 8px;
+}
+
+body.needrows-table-focus .topbar {
+  display: none !important;
+}
+
+body.needrows-table-focus .page-container,
+body.needrows-table-focus .page-box {
+  padding: 8px 10px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+body.needrows-table-focus .page-container > h1,
+body.needrows-table-focus .page-container > h2,
+body.needrows-table-focus .page-container > h3 {
+  display: none !important;
+}
+
+/* Сарлавҳа остидаги изоҳни яшириш */
+body.needrows-table-focus .page-container > h1 + p,
+body.needrows-table-focus .page-container > h2 + p,
+body.needrows-table-focus .page-container > h3 + p {
+  display: none !important;
+}
+
+/* Бошқарув панели экран тепасида қолсин */
+body.needrows-table-focus .needrows-compact-toolbar-v2 {
+  position: sticky;
+  top: 4px;
+  z-index: 80;
+  margin-top: 0;
+  margin-bottom: 6px;
+  padding: 5px 7px;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+body.needrows-table-focus .needrows-compact-toolbar-v2 .needrows-compact-title strong {
+  font-size: 12px;
+}
+
+body.needrows-table-focus .needrows-compact-toolbar-v2 .needrows-compact-title span {
+  font-size: 10px;
+}
+
+body.needrows-table-focus .needrows-compact-toolbar-v2 .needrows-compact-actions button {
+  padding: 5px 7px;
+  font-size: 10.5px;
+  border-radius: 7px;
+}
+
+/* Жадвал вертикал scroll'ни ўз ичида қилсин */
+body.needrows-table-focus .needrows-main-table-wrap,
+body.needrows-table-focus .needrows-table-wrap,
+body.needrows-table-focus .table-wrap {
+  margin-top: 6px !important;
+  max-height: calc(100vh - 78px);
+  overflow: auto !important;
+  border-radius: 8px;
+}
+
+/* Устун сарлавҳаси ички scroll'да ҳам sticky бўлиб қолсин */
+body.needrows-table-focus .grid-table thead th,
+body.needrows-table-focus .needrows-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+}
+
+/* Sticky left/action устунлар header'дан пастда қолмасин */
+body.needrows-table-focus .needrows-table thead th.sticky-left-1,
+body.needrows-table-focus .needrows-table thead th.sticky-left-2,
+body.needrows-table-focus .needrows-table thead th.sticky-actions {
+  z-index: 35;
+}
+
+body.needrows-table-focus .needrows-table th,
+body.needrows-table-focus .needrows-table td,
+body.needrows-table-focus .grid-table th,
+body.needrows-table-focus .grid-table td {
+  padding: 5px 5px;
+  font-size: 11.5px;
+  line-height: 1.18;
+}
+
+body.needrows-table-focus .needrows-table .sticky-actions-cell {
+  gap: 4px;
+}
+
+body.needrows-table-focus .needrows-table .sticky-actions-cell button {
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+body.needrows-table-focus .status-badge,
+body.needrows-table-focus .percent-badge {
+  padding: 3px 7px;
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  body.needrows-table-focus #root {
+    padding: 4px;
+  }
+
+  body.needrows-table-focus .needrows-main-table-wrap,
+  body.needrows-table-focus .needrows-table-wrap,
+  body.needrows-table-focus .table-wrap {
+    max-height: calc(100vh - 92px);
+  }
+}
+/* /NEEDROWS_TABLE_FOCUS_MODE_V1 */
+
+
+/* GLOBAL_ROUTE_MODE_TOOLBAR_CSS_V1 */
+.global-route-mode-toolbar {
+  position: sticky;
+  top: 6px;
+  z-index: 2000;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px 0;
+  padding: 8px 10px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.07);
+  font-size: 13px;
+}
+
+.global-route-mode-toolbar span {
+  color: #64748b;
+  margin-left: 8px;
+}
+
+.global-route-mode-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.global-route-mode-actions button {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 9px;
+}
+
+body.route-monthly-issues.page-mode-compact #root,
+body.route-stock-summary.page-mode-compact #root {
+  padding-top: 10px;
+}
+
+body.route-monthly-issues.page-mode-compact .page-container,
+body.route-monthly-issues.page-mode-compact .page-box,
+body.route-stock-summary.page-mode-compact .page-container,
+body.route-stock-summary.page-mode-compact .page-box {
+  padding: 14px;
+}
+
+body.route-monthly-issues.page-mode-compact .page-container > h1,
+body.route-monthly-issues.page-mode-compact .page-container > p,
+body.route-monthly-issues.page-mode-compact .page-box > h1,
+body.route-monthly-issues.page-mode-compact .page-box > p,
+body.route-stock-summary.page-mode-compact .page-container > h1,
+body.route-stock-summary.page-mode-compact .page-container > p,
+body.route-stock-summary.page-mode-compact .page-box > h1,
+body.route-stock-summary.page-mode-compact .page-box > p {
+  display: none !important;
+}
+
+body.route-monthly-issues.page-mode-compact .form-card,
+body.route-stock-summary.page-mode-compact .form-card {
+  padding: 10px;
+}
+
+body.route-monthly-issues.page-mode-compact .form-row,
+body.route-monthly-issues.page-mode-compact .filter-row,
+body.route-monthly-issues.page-mode-compact .filters-row,
+body.route-stock-summary.page-mode-compact .form-row,
+body.route-stock-summary.page-mode-compact .filter-row,
+body.route-stock-summary.page-mode-compact .filters-row {
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+body.route-monthly-issues.page-mode-compact input,
+body.route-monthly-issues.page-mode-compact select,
+body.route-stock-summary.page-mode-compact input,
+body.route-stock-summary.page-mode-compact select {
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+body.route-monthly-issues.page-mode-compact button,
+body.route-stock-summary.page-mode-compact button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+body.route-monthly-issues.page-mode-table #root,
+body.route-stock-summary.page-mode-table #root {
+  max-width: none;
+  padding: 6px;
+}
+
+body.route-monthly-issues.page-mode-table .topbar,
+body.route-stock-summary.page-mode-table .topbar {
+  display: none !important;
+}
+
+body.route-monthly-issues.page-mode-table .global-route-mode-toolbar,
+body.route-stock-summary.page-mode-table .global-route-mode-toolbar {
+  top: 0;
+  margin-bottom: 6px;
+  border-radius: 8px;
+}
+
+body.route-monthly-issues.page-mode-table .page-container,
+body.route-monthly-issues.page-mode-table .page-box,
+body.route-stock-summary.page-mode-table .page-container,
+body.route-stock-summary.page-mode-table .page-box {
+  max-width: none;
+  padding: 6px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+body.route-monthly-issues.page-mode-table .page-container > *:not(.table-wrap):not(.table-wrapper):not(:has(.table-wrap)):not(:has(.table-wrapper)),
+body.route-monthly-issues.page-mode-table .page-box > *:not(.table-wrap):not(.table-wrapper):not(:has(.table-wrap)):not(:has(.table-wrapper)),
+body.route-stock-summary.page-mode-table .page-container > *:not(.table-wrap):not(.table-wrapper):not(:has(.table-wrap)):not(:has(.table-wrapper)),
+body.route-stock-summary.page-mode-table .page-box > *:not(.table-wrap):not(.table-wrapper):not(:has(.table-wrap)):not(:has(.table-wrapper)) {
+  display: none !important;
+}
+
+body.route-monthly-issues.page-mode-table .table-wrap,
+body.route-monthly-issues.page-mode-table .table-wrapper,
+body.route-stock-summary.page-mode-table .table-wrap,
+body.route-stock-summary.page-mode-table .table-wrapper {
+  margin-top: 4px;
+  max-height: calc(100vh - 76px);
+  overflow: auto;
+  border-radius: 8px;
+}
+
+body.route-monthly-issues.page-mode-table .grid-table th,
+body.route-monthly-issues.page-mode-table .grid-table td,
+body.route-stock-summary.page-mode-table .grid-table th,
+body.route-stock-summary.page-mode-table .grid-table td {
+  padding: 6px 6px;
+  font-size: 12px;
+  line-height: 1.15;
+}
+
+body.route-monthly-issues.page-mode-table .grid-table thead th,
+body.route-stock-summary.page-mode-table .grid-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+@media (max-width: 900px) {
+  .global-route-mode-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .global-route-mode-actions {
+    justify-content: flex-start;
+  }
+}
+/* /GLOBAL_ROUTE_MODE_TOOLBAR_CSS_V1 */
+
+
+/* GLOBAL_ROUTE_MODE_TOOLBAR_CLEANUP_V2 */
+.global-route-mode-toolbar {
+  box-sizing: border-box;
+  overflow: visible !important;
+  padding-left: 16px !important;
+  padding-right: 10px !important;
+}
+
+.global-route-mode-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: visible !important;
+  padding-left: 2px;
+}
+
+.global-route-mode-title strong,
+.global-route-mode-title span,
+.global-route-mode-actions button {
+  text-indent: 0 !important;
+  overflow: visible !important;
+}
+
+.global-route-mode-title strong {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.global-route-mode-actions {
+  padding-left: 8px;
+}
+
+body.route-monthly-issues.page-mode-table .global-route-mode-toolbar,
+body.route-stock-summary.page-mode-table .global-route-mode-toolbar {
+  margin-left: 8px !important;
+  margin-right: 8px !important;
+  width: auto !important;
+}
+/* /GLOBAL_ROUTE_MODE_TOOLBAR_CLEANUP_V2 */
+

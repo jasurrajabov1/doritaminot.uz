@@ -1,10 +1,20 @@
+from rest_framework.routers import DefaultRouter
+from .drug_option_api import DrugOptionViewSet
 from django.urls import path
 
 from . import views
+from .excel_import_api import ExcelImportAPIView
+from .need_addition_api import NeedAdditionViewSet
+from .excel_need_matrix_api import ExcelNeedMatrixImportAPIView
+
+
+router = DefaultRouter()
+router.register(r"drug-options", DrugOptionViewSet, basename="drug-option")
 
 urlpatterns = [
     path("", views.api_root, name="api-root"),
     path("health/", views.health_check, name="health-check"),
+    path("import/excel/", ExcelImportAPIView.as_view(), name="excel-import"),
 
     path("auth/login/", views.LoginAPIView.as_view(), name="auth-login"),
     path("auth/logout/", views.LogoutAPIView.as_view(), name="auth-logout"),
@@ -22,10 +32,22 @@ urlpatterns = [
     path("prices/<int:pk>/", views.PriceDetailAPIView.as_view(), name="prices-detail"),
 
     path("monthly-issues/", views.MonthlyIssueListCreateAPIView.as_view(), name="monthly-issues-list"),
+    path("monthly-issues/bulk-delete/", views.MonthlyIssueBulkDeleteAPIView.as_view(), name="monthly-issues-bulk-delete"),
     path("monthly-issues/<int:pk>/", views.MonthlyIssueDetailAPIView.as_view(), name="monthly-issues-detail"),
 
+    path("import/need-matrix/", ExcelNeedMatrixImportAPIView.as_view(), name="excel-need-matrix-import"),
+
+    path("need-rows/bulk-delete/", views.NeedRowBulkDeleteAPIView.as_view(), name="need-rows-bulk-delete"),
     path("need-rows/", views.NeedRowListCreateAPIView.as_view(), name="need-rows-list"),
     path("need-rows/<int:pk>/", views.NeedRowDetailAPIView.as_view(), name="need-rows-detail"),
+
+    path("need-additions/bulk-delete/", views.NeedAdditionBulkDeleteAPIView.as_view(), name="need-additions-bulk-delete"),
+    path("need-additions/", views.NeedAdditionListCreateAPIView.as_view(), name="need-additions-list"),
+    path("need-additions/<int:pk>/", views.NeedAdditionDetailAPIView.as_view(), name="need-additions-detail"),
+
+    path("need-row-additions/bulk-delete/", views.NeedAdditionBulkDeleteAPIView.as_view(), name="need-row-additions-bulk-delete"),
+    path("need-row-additions/", views.NeedAdditionListCreateAPIView.as_view(), name="need-row-additions-list"),
+    path("need-row-additions/<int:pk>/", views.NeedAdditionDetailAPIView.as_view(), name="need-row-additions-detail"),  
 
     path("stock-summary/", views.StockSummaryAPIView.as_view(), name="stock-summary"),
     path("dashboard-summary/", views.DashboardSummaryAPIView.as_view(), name="dashboard-summary"),
@@ -44,3 +66,5 @@ urlpatterns = [
     path("access/user-permission-overrides/", views.UserPermissionOverrideListCreateAPIView.as_view(), name="access-user-permission-overrides-list"),
     path("access/user-permission-overrides/<int:pk>/", views.UserPermissionOverrideDetailAPIView.as_view(), name="access-user-permission-overrides-detail"),
 ]
+
+urlpatterns += router.urls

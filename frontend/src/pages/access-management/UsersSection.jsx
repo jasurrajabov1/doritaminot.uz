@@ -66,6 +66,68 @@ export default function UsersSection({
   const isDeleteDisabled = (user) => Boolean(getDisabledActionReason(user));
   const isToggleDisabled = (user) => Boolean(getDisabledActionReason(user));
 
+  const getPasswordPolicyLabel = (value) => {
+    if (value === "simple") return "Оддий";
+    if (value === "strong") return "Кучли";
+    return "Ўртача";
+  };
+
+  const getBadgeStyle = (variant) => {
+    const variants = {
+      success: {
+        background: "#dcfce7",
+        color: "#166534",
+        border: "1px solid #bbf7d0",
+      },
+      warning: {
+        background: "#fef3c7",
+        color: "#92400e",
+        border: "1px solid #fde68a",
+      },
+      danger: {
+        background: "#fee2e2",
+        color: "#991b1b",
+        border: "1px solid #fecaca",
+      },
+      neutral: {
+        background: "#f1f5f9",
+        color: "#475569",
+        border: "1px solid #e2e8f0",
+      },
+      info: {
+        background: "#dbeafe",
+        color: "#1d4ed8",
+        border: "1px solid #bfdbfe",
+      },
+    };
+
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      minWidth: "48px",
+      padding: "3px 8px",
+      borderRadius: "999px",
+      fontSize: "12px",
+      fontWeight: 600,
+      whiteSpace: "nowrap",
+      ...(variants[variant] || variants.neutral),
+    };
+  };
+
+  const getPasswordPolicyVariant = (value) => {
+    if (value === "simple") return "info";
+    if (value === "strong") return "warning";
+    return "neutral";
+  };
+
+  const renderBooleanBadge = (value, trueVariant = "success", falseVariant = "neutral") => (
+    <span style={getBadgeStyle(value ? trueVariant : falseVariant)}>
+      {yesNo(value)}
+    </span>
+  );
+
+  
   return (
     <>
       <div className="form-card" style={{ marginBottom: "16px" }}>
@@ -457,16 +519,22 @@ export default function UsersSection({
                     <td style={tdStyle}>{item.email || "—"}</td>
                     <td style={tdStyle}>{item.role?.name || "Ролсиз"}</td>
                     <td style={tdStyle}>
-                      {item.password_policy === "simple"
-                        ? "Оддий"
-                        : item.password_policy === "strong"
-                        ? "Кучли"
-                        : "Ўртача"}
+                      <span style={getBadgeStyle(getPasswordPolicyVariant(item.password_policy))}>
+                        {getPasswordPolicyLabel(item.password_policy)}
+                      </span>
                     </td>
-                    <td style={tdStyle}>{yesNo(item.must_change_password)}</td>
-                    <td style={tdStyle}>{yesNo(item.is_active)}</td>
-                    <td style={tdStyle}>{yesNo(item.is_staff)}</td>
-                    <td style={tdStyle}>{yesNo(item.is_superuser)}</td>
+                    <td style={tdStyle}>
+                      {renderBooleanBadge(item.must_change_password, "warning", "neutral")}
+                    </td>
+                    <td style={tdStyle}>
+                      {renderBooleanBadge(item.is_active, "success", "danger")}
+                    </td>
+                    <td style={tdStyle}>
+                      {renderBooleanBadge(item.is_staff, "info", "neutral")}
+                    </td>
+                    <td style={tdStyle}>
+                      {renderBooleanBadge(item.is_superuser, "warning", "neutral")}
+                    </td>
                     <td style={tdStyle}>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         <button

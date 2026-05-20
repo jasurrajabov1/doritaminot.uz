@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api/client";
 import { canDo, canViewPage } from "../utils/permission";
+import { getDrugLabel } from "../utils/drugLabel";
 
 function toArray(payload) {
   if (Array.isArray(payload)) return payload;
@@ -122,10 +123,11 @@ export default function MonthlyIssuesPage() {
   const [editingId, setEditingId] = useState(null);
 
   const [filterInstitution, setFilterInstitution] = useState("");
+  const [filterInn, setFilterInn] = useState("");
   const [filterDrug, setFilterDrug] = useState("");
   const [filterYear, setFilterYear] = useState("");
   const [searchText, setSearchText] = useState("");
-
+  const [selectedIssueIds, setSelectedIssueIds] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
@@ -190,22 +192,41 @@ export default function MonthlyIssuesPage() {
     id: x.id,
     institution: x.institution ?? x.institution_id ?? "",
     institution_name: x.institution_name ?? x.institution?.name ?? "",
+    institution_inn: x.institution_inn ?? x.institution?.inn ?? "",
     drug: x.drug ?? x.drug_id ?? "",
     drug_name: x.drug_name ?? x.drug?.name ?? "",
     year: x.year ?? "",
     issued_qty: x.issued_qty ?? x.given_qty ?? 0,
   });
 
-  const normalizeNeedRow = (x) => ({
-    id: x.id,
-    institution: x.institution ?? x.institution_id ?? "",
-    drug: x.drug ?? x.drug_id ?? "",
-    year: x.year ?? "",
-    yearly_need: x.yearly_need ?? 0,
-    given_dpm: x.given_dpm ?? 0,
-    remaining: x.remaining ?? 0,
-    remaining_percent: x.remaining_percent ?? 0,
-  });
+  const normalizeNeedRow = (x) => {
+    const baseNeed = parseNumber(x.yearly_need ?? 0);
+    const additionalNeed = parseNumber(x.additional_need ?? 0);
+    const totalNeed =
+      x.total_need !== undefined && x.total_need !== null
+        ? parseNumber(x.total_need)
+        : baseNeed + additionalNeed;
+
+    return {
+      id: x.id,
+      institution: x.institution ?? x.institution_id ?? "",
+      institution_name: x.institution_name ?? x.institution?.name ?? "",
+      institution_inn: x.institution_inn ?? x.institution?.inn ?? "",
+      drug: x.drug ?? x.drug_id ?? "",
+      drug_name: x.drug_name ?? x.drug?.name ?? "",
+      year: x.year ?? "",
+
+      yearly_need: baseNeed,
+      additional_need: additionalNeed,
+      total_need: totalNeed,
+      additional_need_percent: x.additional_need_percent ?? 0,
+      addition_count: x.addition_count ?? 0,
+
+      given_dpm: x.given_dpm ?? 0,
+      remaining: x.remaining ?? 0,
+      remaining_percent: x.remaining_percent ?? 0,
+    };
+  };
 
   const load = useCallback(async () => {
     try {
@@ -244,7 +265,7 @@ export default function MonthlyIssuesPage() {
   const drugMap = useMemo(() => {
     const map = {};
     drugs.forEach((item) => {
-      map[String(item.id)] = item.name;
+      map[String(item.id)] = getDrugLabel(item);
     });
     return map;
   }, [drugs]);
@@ -265,6 +286,15 @@ export default function MonthlyIssuesPage() {
 
     return [...values].sort((a, b) => Number(b) - Number(a));
   }, [items, needRows, year, currentYear]);
+
+  const selectedInstitution = useMemo(() => {
+    return institutions.find(
+      (item) => String(item.id) === String(institutionId)
+    );
+  }, [institutions, institutionId]);
+
+  const selectedInstitutionInn = selectedInstitution?.inn || "";
+
 
   const resetForm = () => {
     setInstitutionId("");
@@ -314,7 +344,14 @@ export default function MonthlyIssuesPage() {
 
   const preview = useMemo(() => {
     const inputQty = parseNumber(issuedQty);
-    const needQty = Number(selectedNeedRow?.yearly_need || 0);
+
+    const baseNeedQty = Number(selectedNeedRow?.yearly_need || 0);
+    const additionalNeedQty = Number(selectedNeedRow?.additional_need || 0);
+    const needQty =
+      selectedNeedRow?.total_need !== undefined && selectedNeedRow?.total_need !== null
+        ? Number(selectedNeedRow.total_need || 0)
+        : baseNeedQty + additionalNeedQty;
+
     const existingQty = Number(currentSavedIssue?.issued_qty || 0);
 
     let newTotal = inputQty;
@@ -328,6 +365,8 @@ export default function MonthlyIssuesPage() {
 
     return {
       inputQty,
+      baseNeedQty,
+      additionalNeedQty,
       needQty,
       existingQty,
       newTotal,
@@ -429,6 +468,23 @@ export default function MonthlyIssuesPage() {
     }
   };
 
+
+  const deleteMonthlyIssuesByIds = async (ids) => {
+    const cleanIds = Array.from(
+      new Set((ids || []).map((id) => Number(id)).filter(Boolean))
+    );
+
+    if (!cleanIds.length) {
+      return { deleted: 0, blocked: 0 };
+    }
+
+    const res = await api.post("/monthly-issues/bulk-delete/", {
+      ids: cleanIds,
+    });
+
+    return res.data || {};
+  };
+
   const handleDelete = async (id) => {
     const ok = window.confirm("Ростдан ҳам ўчирмоқчимисиз?");
     if (!ok) return;
@@ -436,8 +492,11 @@ export default function MonthlyIssuesPage() {
     try {
       setError("");
       setSuccess("");
-      await api.delete(`/monthly-issues/${id}/`);
+      await deleteMonthlyIssuesByIds([id]);
       setItems((prev) => prev.filter((x) => Number(x.id) !== Number(id)));
+      setSelectedIssueIds((prev) =>
+        prev.filter((x) => Number(x) !== Number(id))
+      );
 
       if (Number(editingId) === Number(id)) {
         resetForm();
@@ -458,16 +517,39 @@ export default function MonthlyIssuesPage() {
     [institutionMap]
   );
 
+  const getInstitutionInn = useCallback(
+    (item) => {
+      if (item.institution_inn !== undefined && item.institution_inn !== null) {
+        return String(item.institution_inn || "");
+      }
+
+      const found = institutions.find(
+        (x) => String(x.id) === String(item.institution)
+      );
+
+      return String(found?.inn || "");
+    },
+    [institutions]
+  );
+
+
   const getDrugName = useCallback(
     (item) => {
-      if (item.drug_name) return item.drug_name;
-      return drugMap[String(item.drug)] || "";
+      return (
+        item.drug_display_name ||
+        item.drug_full_name ||
+        getDrugLabel(item.drug) ||
+        drugMap[String(item.drug)] ||
+        item.drug_name ||
+        ""
+      );
     },
     [drugMap]
   );
 
   const filteredItems = useMemo(() => {
     const q = searchText.trim().toLowerCase();
+    const innFilter = filterInn.trim();
 
     return items
       .filter((item) => {
@@ -481,10 +563,16 @@ export default function MonthlyIssuesPage() {
 
         const byYear = filterYear ? String(item.year) === String(filterYear) : true;
 
-        const text = `${getInstitutionName(item)} ${getDrugName(item)} ${item.year}`.toLowerCase();
+        const institutionName = getInstitutionName(item);
+        const institutionInn = getInstitutionInn(item);
+        const drugName = getDrugName(item);
+
+        const byInn = innFilter ? institutionInn.includes(innFilter) : true;
+
+        const text = `${institutionName} ${institutionInn} ${drugName} ${item.year}`.toLowerCase();
         const bySearch = q ? text.includes(q) : true;
 
-        return byInstitution && byDrug && byYear && bySearch;
+        return byInstitution && byDrug && byYear && byInn && bySearch;
       })
       .sort((a, b) => {
         if (Number(a.year) !== Number(b.year)) {
@@ -504,10 +592,12 @@ export default function MonthlyIssuesPage() {
   }, [
     items,
     filterInstitution,
+    filterInn,
     filterDrug,
     filterYear,
     searchText,
     getInstitutionName,
+    getInstitutionInn,
     getDrugName,
   ]);
 
@@ -520,21 +610,132 @@ export default function MonthlyIssuesPage() {
           String(row.year) === String(item.year)
       );
 
-      const yearlyNeed = Number(matchedNeedRow?.yearly_need || 0);
+      const baseNeed = Number(matchedNeedRow?.yearly_need || 0);
+      const additionalNeed = Number(matchedNeedRow?.additional_need || 0);
+      const totalNeed =
+        matchedNeedRow?.total_need !== undefined && matchedNeedRow?.total_need !== null
+          ? Number(matchedNeedRow.total_need || 0)
+          : baseNeed + additionalNeed;
+
       const givenQty = Number(item.issued_qty || 0);
-      const remainingQty = yearlyNeed - givenQty;
-      const remainingPercent = yearlyNeed > 0 ? (remainingQty / yearlyNeed) * 100 : 0;
-      const status = getStatusMeta(yearlyNeed, givenQty);
+      const remainingQty = totalNeed - givenQty;
+      const remainingPercent = totalNeed > 0 ? (remainingQty / totalNeed) * 100 : 0;
+      const status = getStatusMeta(totalNeed, givenQty);
 
       return {
         ...item,
-        yearlyNeed,
+        baseNeed,
+        additionalNeed,
+        totalNeed,
+        yearlyNeed: totalNeed,
         remainingQty,
         remainingPercent,
         status,
       };
     });
   }, [filteredItems, needRows]);
+
+  const selectedIssueIdSet = useMemo(
+    () => new Set(selectedIssueIds.map((id) => String(id))),
+    [selectedIssueIds]
+  );
+
+  const visibleIssueIds = useMemo(
+    () => rowsForTable.map((item) => String(item.id)),
+    [rowsForTable]
+  );
+
+  const allVisibleIssuesSelected =
+    visibleIssueIds.length > 0 &&
+    visibleIssueIds.every((id) => selectedIssueIdSet.has(id));
+
+  const selectedIssueCount = selectedIssueIds.length;
+
+  const toggleIssueSelected = (id) => {
+    const key = String(id);
+
+    setSelectedIssueIds((prev) =>
+      prev.map(String).includes(key)
+        ? prev.filter((item) => String(item) !== key)
+        : [...prev, key]
+    );
+  };
+
+  const toggleVisibleIssues = () => {
+    const visibleSet = new Set(visibleIssueIds);
+
+    setSelectedIssueIds((prev) => {
+      const current = new Set(prev.map(String));
+
+      if (allVisibleIssuesSelected) {
+        return [...current].filter((id) => !visibleSet.has(id));
+      }
+
+      visibleIssueIds.forEach((id) => current.add(id));
+      return [...current];
+    });
+  };
+
+  const clearIssueSelection = () => {
+    setSelectedIssueIds([]);
+  };
+
+  const bulkDeleteSelectedMonthlyIssues = async () => {
+    if (!canDeleteMonthlyIssue) {
+      setSuccess("");
+      setError("Сизда берилган миқдор ёзувини ўчириш ҳуқуқи йўқ.");
+      return;
+    }
+
+    const ids = selectedIssueIds.map(String).filter(Boolean);
+
+    if (ids.length === 0) {
+      setSuccess("");
+      setError("Аввал ўчириладиган берилган миқдор ёзувларини белгиланг.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `${ids.length} та танланган берилган миқдор ёзувини ўчиришни тасдиқлайсизми?`
+    );
+
+    if (!ok) return;
+
+    try {
+      setError("");
+      setSuccess("");
+
+      let deleted = 0;
+      const errors = [];
+
+      for (const id of ids) {
+        try {
+          await deleteMonthlyIssuesByIds([id]);
+          deleted += 1;
+        } catch (e) {
+          console.error(e);
+          errors.push(`ID ${id}: ${getErrorMessage(e, "ўчиришда хато")}`);
+        }
+      }
+
+      setSelectedIssueIds([]);
+      await load();
+
+      if (errors.length > 0) {
+        setError(
+          `${deleted} та ёзув ўчирилди. Қолган хатолар: ${errors.join(" | ")}`
+        );
+        return;
+      }
+
+      setSuccess(`${deleted} та берилган миқдор ёзуви ўчирилди.`);
+    } catch (e) {
+      console.error(e);
+      setError(
+        getErrorMessage(e, "Танланган берилган миқдор ёзувларини ўчиришда хато бўлди.")
+      );
+    }
+  };
 
   if (!canViewMonthlyIssues) {
     return <div className="page-container">Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.</div>;
@@ -562,16 +763,22 @@ export default function MonthlyIssuesPage() {
               <option value="">Муассасани танланг</option>
               {institutions.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.name}
+                  {item.name}{item.inn ? ` (${item.inn})` : ""}
                 </option>
               ))}
             </select>
+
+            <input
+              placeholder="Муассаса ИНН"
+              value={selectedInstitutionInn}
+              readOnly
+            />
 
             <select value={drugId} onChange={(e) => setDrugId(e.target.value)}>
               <option value="">Дорини танланг</option>
               {drugs.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.name}
+                  {getDrugLabel(item)}
                 </option>
               ))}
             </select>
@@ -612,7 +819,7 @@ export default function MonthlyIssuesPage() {
 
           <div className="stats-row" style={{ marginTop: 12 }}>
             <div className="stat-card">
-              <div>Йиллик эҳтиёж</div>
+              <div>Умумий эҳтиёж</div>
               <div>{fmtQty(preview.needQty)}</div>
             </div>
             <div className="stat-card">
@@ -637,28 +844,22 @@ export default function MonthlyIssuesPage() {
 
       <div className="form-card" style={{ marginTop: 16 }}>
         <div className="filter-row">
+          <input
+            placeholder="Қидириш: муассаса, ИНН ёки дори"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+
+          <input
+            placeholder="Фильтр: ИНН"
+            value={filterInn}
+            onChange={(e) => setFilterInn(e.target.value.replace(/\D/g, "").slice(0, 9))}
+          />
+
           <select
-            value={filterInstitution}
-            onChange={(e) => setFilterInstitution(e.target.value)}
+            value={filterYear}
+            onChange={(e) => setFilterYear(e.target.value)}
           >
-            <option value="">Барча муассасалар</option>
-            {institutions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-
-          <select value={filterDrug} onChange={(e) => setFilterDrug(e.target.value)}>
-            <option value="">Барча дорилар</option>
-            {drugs.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-
-          <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)}>
             <option value="">Барча йиллар</option>
             {yearOptions.map((item) => (
               <option key={item} value={item}>
@@ -667,16 +868,32 @@ export default function MonthlyIssuesPage() {
             ))}
           </select>
 
-          <input
-            placeholder="Қидириш: муассаса ёки дори"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-          />
+          <select
+            value={filterInstitution}
+            onChange={(e) => setFilterInstitution(e.target.value)}
+          >
+            <option value="">Барча муассасалар</option>
+            {institutions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}{item.inn ? ` (${item.inn})` : ""}
+              </option>
+            ))}
+          </select>
+
+          <select value={filterDrug} onChange={(e) => setFilterDrug(e.target.value)}>
+            <option value="">Барча дорилар</option>
+            {drugs.map((item) => (
+              <option key={item.id} value={item.id}>
+                {getDrugLabel(item)}
+              </option>
+            ))}
+          </select>
 
           <button
             type="button"
             onClick={() => {
               setFilterInstitution("");
+              setFilterInn("");
               setFilterDrug("");
               setFilterYear("");
               setSearchText("");
@@ -686,6 +903,42 @@ export default function MonthlyIssuesPage() {
           </button>
         </div>
       </div>
+
+
+      {canDeleteMonthlyIssue ? (
+        <div className="form-card" style={{ marginTop: "16px" }}>
+          <div className="filter-row" style={{ marginBottom: 0 }}>
+            <strong>Танланган: {selectedIssueCount} та</strong>
+
+            <button
+              type="button"
+              disabled={visibleIssueIds.length === 0}
+              onClick={toggleVisibleIssues}
+            >
+              {allVisibleIssuesSelected
+                ? "Кўринаётганлар танланган"
+                : `Кўринаётганларни белгилаш (${visibleIssueIds.length})`}
+            </button>
+
+            <button
+              type="button"
+              disabled={selectedIssueCount === 0}
+              onClick={clearIssueSelection}
+            >
+              Танловни тозалаш
+            </button>
+
+            <button
+              type="button"
+              disabled={selectedIssueCount === 0}
+              onClick={bulkDeleteSelectedMonthlyIssues}
+              style={{ borderColor: "#ef4444", color: "#dc2626" }}
+            >
+              Танланганларни ўчириш
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="table-wrap">
         <table
@@ -697,11 +950,23 @@ export default function MonthlyIssuesPage() {
         >
           <thead>
             <tr>
+              {canDeleteMonthlyIssue ? (
+                <th style={compactNowrapHeaderCell}>
+                  <input
+                    type="checkbox"
+                    aria-label="Кўринаётган берилган миқдорларни белгилаш"
+                    checked={allVisibleIssuesSelected}
+                    disabled={visibleIssueIds.length === 0}
+                    onChange={toggleVisibleIssues}
+                  />
+                </th>
+              ) : null}
               <th style={compactNowrapHeaderCell}>ИД</th>
               <th style={compactHeaderCell}>Муассаса</th>
+              <th style={compactHeaderCell}>ИНН</th>
               <th style={compactHeaderCell}>Дори</th>
               <th style={compactNowrapHeaderCell}>Йил</th>
-              <th style={compactHeaderCell}>Йиллик эҳтиёж</th>
+              <th style={compactHeaderCell}>Умумий эҳтиёж</th>
               <th style={compactHeaderCell}>Жами берилган</th>
               <th style={compactHeaderCell}>Қолдиқ</th>
               <th style={compactHeaderCell}>Қолдиқ %</th>
@@ -713,11 +978,21 @@ export default function MonthlyIssuesPage() {
             {!loading && rowsForTable.length > 0 ? (
               rowsForTable.map((item) => (
                 <tr key={item.id}>
+                  {canDeleteMonthlyIssue ? (
+                    <td style={nowrapCell}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIssueIdSet.has(String(item.id))}
+                        onChange={() => toggleIssueSelected(item.id)}
+                      />
+                    </td>
+                  ) : null}
                   <td style={nowrapCell}>{item.id}</td>
                   <td style={wrapCell}>{getInstitutionName(item)}</td>
+                  <td style={nowrapCell}>{getInstitutionInn(item) || "—"}</td>
                   <td style={wrapCell}>{getDrugName(item)}</td>
                   <td style={nowrapCell}>{item.year}</td>
-                  <td style={nowrapCell}>{fmtQty(item.yearlyNeed)}</td>
+                  <td style={nowrapCell}>{fmtQty(item.totalNeed)}</td>
                   <td style={nowrapCell}>{fmtQty(item.issued_qty)}</td>
                   <td style={nowrapCell}>{fmtQty(item.remainingQty)}</td>
                   <td style={nowrapCell}>{fmtQty(item.remainingPercent)}</td>
@@ -767,7 +1042,7 @@ export default function MonthlyIssuesPage() {
               ))
             ) : (
               <tr>
-                <td colSpan={canShowMonthlyIssueActions ? 10 : 9} style={compactCell}>
+                <td colSpan={(canDeleteMonthlyIssue ? 1 : 0) + 10 + (canShowMonthlyIssueActions ? 1 : 0)} style={compactCell}>
                   Маълумот йўқ
                 </td>
               </tr>

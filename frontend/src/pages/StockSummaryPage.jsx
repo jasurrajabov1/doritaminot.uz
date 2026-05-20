@@ -3,6 +3,8 @@ import * as XLSX from "xlsx";
 import api from "../api/client";
 import { canDo, canViewPage } from "../utils/permission";
 
+const STOCK_COLUMNS_STORAGE_KEY = "stock_summary_columns_v2";
+
 const toArray = (data) => {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.results)) return data.results;
@@ -46,6 +48,13 @@ const fmt = (value) => {
   });
 };
 
+const fmtMoney = (value) => {
+  return toNumber(value).toLocaleString("ru-RU", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
 const fmtPercent = (value) => {
   return toNumber(value).toLocaleString("ru-RU", {
     minimumFractionDigits: 0,
@@ -63,13 +72,13 @@ const normalizeStatusLabel = (status) => {
 };
 
 const getStatusLabel = (x) => {
-  const yearlyNeed = toNumber(x.yearly_need);
+  const totalNeed = toNumber(x.total_need ?? x.yearly_need);
   const givenQty = toNumber(x.given_qty);
   const remainingQty = toNumber(x.remaining_qty);
   const percent = toNumber(x.remaining_percent);
 
-  if (yearlyNeed <= 0) return "Номаълум";
-  if (remainingQty < 0 || givenQty > yearlyNeed) return "Эҳтиёждан ошган";
+  if (totalNeed <= 0) return "Номаълум";
+  if (remainingQty < 0 || givenQty > totalNeed) return "Эҳтиёждан ошган";
   if (percent < 20) return "Критик";
   if (percent < 30) return "Паст";
   if (percent < 50) return "Огоҳлантириш";
@@ -116,14 +125,304 @@ const getRowStyle = (x) => {
   return {};
 };
 
+const getAdditionalPercent = (x) => {
+  const baseNeed = toNumber(x.yearly_need);
+  const additionalNeed = toNumber(x.additional_need);
+
+  if (baseNeed <= 0) return null;
+  return (additionalNeed / baseNeed) * 100;
+};
+
+const normalizeRow = (x, index) => {
+  const baseNeed = toNumber(x.yearly_need ?? x.base_yearly_need);
+  const additionalNeed = toNumber(
+    x.additional_need ?? x.additional_yearly_need
+  );
+
+  const totalNeed =
+    x.total_need !== undefined && x.total_need !== null
+      ? toNumber(x.total_need)
+      : x.total_yearly_need !== undefined && x.total_yearly_need !== null
+      ? toNumber(x.total_yearly_need)
+      : baseNeed + additionalNeed;
+
+  const givenQty = toNumber(x.issued_qty ?? x.given_qty ?? x.given_dpm);
+
+  const remainingQty =
+    x.remaining_qty !== undefined && x.remaining_qty !== null
+      ? toNumber(x.remaining_qty)
+      : x.remaining !== undefined && x.remaining !== null
+      ? toNumber(x.remaining)
+      : totalNeed - givenQty;
+
+  const remainingPercent =
+    x.remaining_percent !== undefined && x.remaining_percent !== null
+      ? toNumber(x.remaining_percent)
+      : totalNeed > 0
+      ? (remainingQty / totalNeed) * 100
+      : 0;
+
+  const normalized = {
+    id:
+      x.id ??
+      `${x.institution_name || "inst"}-${x.drug_name || "drug"}-${x.year || "year"}-${index}`,
+    institution_name: x.institution_name ?? x.institution ?? "",
+    institution_inn: x.institution_inn ?? "",
+    drug_name: x.drug_name ?? x.drug ?? "",
+    year: x.year ?? "",
+
+    yearly_need: baseNeed,
+    additional_need: additionalNeed,
+    addition_count: toNumber(x.addition_count ?? x.additional_count),
+    total_need: totalNeed,
+
+    given_qty: givenQty,
+    remaining_qty: remainingQty,
+    remaining_percent: remainingPercent,
+    status: normalizeStatusLabel(x.status),
+
+    price: x.price !== undefined && x.price !== null ? toNumber(x.price) : null,
+    total_need_sum:
+      x.total_need_sum !== undefined && x.total_need_sum !== null
+        ? toNumber(x.total_need_sum)
+        : x.total_yearly_need_sum !== undefined && x.total_yearly_need_sum !== null
+        ? toNumber(x.total_yearly_need_sum)
+        : null,
+    given_sum:
+      x.given_sum !== undefined && x.given_sum !== null
+        ? toNumber(x.given_sum)
+        : null,
+    remaining_sum:
+      x.remaining_sum !== undefined && x.remaining_sum !== null
+        ? toNumber(x.remaining_sum)
+        : null,
+  };
+
+  normalized.additional_percent = getAdditionalPercent(normalized);
+  return normalized;
+};
+
+const STOCK_COLUMNS = [
+  {
+    key: "institution_name",
+    label: "Муассаса",
+    group: "Асосий",
+    required: true,
+    preset: ["compact", "standard", "all"],
+    cell: "wrap",
+    exportLabel: "Муассаса",
+    render: (x) => x.institution_name,
+  },
+  {
+    key: "institution_inn",
+    label: "ИНН",
+    group: "Асосий",
+    preset: ["standard", "all"],
+    cell: "nowrap",
+    exportLabel: "ИНН",
+    render: (x) => x.institution_inn || "—",
+  },
+  {
+    key: "drug_name",
+    label: "Дори",
+    group: "Асосий",
+    required: true,
+    preset: ["compact", "standard", "all"],
+    cell: "wrap",
+    exportLabel: "Дори",
+    render: (x) => x.drug_name,
+  },
+  {
+    key: "year",
+    label: "Йил",
+    group: "Асосий",
+    required: true,
+    preset: ["compact", "standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Йил",
+    render: (x) => x.year,
+  },
+  {
+    key: "yearly_need",
+    label: "Йил бошидаги эҳтиёж",
+    group: "Эҳтиёж",
+    preset: ["standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Йил бошидаги эҳтиёж",
+    render: (x) => fmt(x.yearly_need),
+  },
+  {
+    key: "additional_need",
+    label: "Қўшимча эҳтиёж",
+    group: "Эҳтиёж",
+    preset: ["compact", "standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Қўшимча эҳтиёж",
+    render: (x) => fmt(x.additional_need),
+  },
+  {
+    key: "additional_percent",
+    label: "Қўшимча %",
+    group: "Эҳтиёж",
+    preset: ["standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Қўшимча %",
+    render: (x) =>
+      x.additional_percent === null ? "—" : `${fmtPercent(x.additional_percent)}%`,
+  },
+  {
+    key: "addition_count",
+    label: "Қўшимча сони",
+    group: "Эҳтиёж",
+    preset: ["standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Қўшимча сони",
+    render: (x) => fmt(x.addition_count),
+  },
+  {
+    key: "total_need",
+    label: "Умумий эҳтиёж",
+    group: "Эҳтиёж",
+    required: true,
+    preset: ["compact", "standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Умумий эҳтиёж",
+    render: (x) => fmt(x.total_need),
+  },
+  {
+    key: "given_qty",
+    label: "Берилган миқдор",
+    group: "Берилган / қолдиқ",
+    preset: ["compact", "standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Берилган миқдор",
+    render: (x) => fmt(x.given_qty),
+  },
+  {
+    key: "remaining_qty",
+    label: "Қолдиқ",
+    group: "Берилган / қолдиқ",
+    preset: ["compact", "standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Қолдиқ",
+    render: (x) => fmt(x.remaining_qty),
+  },
+  {
+    key: "remaining_percent",
+    label: "Қолдиқ %",
+    group: "Берилган / қолдиқ",
+    preset: ["compact", "standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Қолдиқ %",
+    render: (x) => `${fmtPercent(x.remaining_percent)}%`,
+  },
+  {
+    key: "status",
+    label: "Статус",
+    group: "Берилган / қолдиқ",
+    required: true,
+    preset: ["compact", "standard", "all"],
+    cell: "nowrap",
+    exportLabel: "Статус",
+    render: (x) => (
+      <span
+        style={{
+          ...getStatusStyle(x),
+          display: "inline-block",
+          padding: "6px 10px",
+          borderRadius: "999px",
+          fontSize: "12px",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {getStatusLabel(x)}
+      </span>
+    ),
+  },
+  {
+    key: "price",
+    label: "Нарх",
+    group: "Суммалар",
+    preset: ["all"],
+    cell: "nowrap",
+    exportLabel: "Нарх",
+    render: (x) => (x.price === null ? "—" : fmtMoney(x.price)),
+  },
+  {
+    key: "total_need_sum",
+    label: "Умумий эҳтиёж сумма",
+    group: "Суммалар",
+    preset: ["all"],
+    cell: "nowrap",
+    exportLabel: "Умумий эҳтиёж сумма",
+    render: (x) => (x.total_need_sum === null ? "—" : fmtMoney(x.total_need_sum)),
+  },
+  {
+    key: "given_sum",
+    label: "Берилган сумма",
+    group: "Суммалар",
+    preset: ["all"],
+    cell: "nowrap",
+    exportLabel: "Берилган сумма",
+    render: (x) => (x.given_sum === null ? "—" : fmtMoney(x.given_sum)),
+  },
+  {
+    key: "remaining_sum",
+    label: "Қолдиқ сумма",
+    group: "Суммалар",
+    preset: ["all"],
+    cell: "nowrap",
+    exportLabel: "Қолдиқ сумма",
+    render: (x) => (x.remaining_sum === null ? "—" : fmtMoney(x.remaining_sum)),
+  },
+];
+
+const COLUMN_GROUPS = ["Асосий", "Эҳтиёж", "Берилган / қолдиқ", "Суммалар"];
+
+const getColumnsByPreset = (preset) => {
+  const keys = STOCK_COLUMNS.filter(
+    (column) => column.required || column.preset.includes(preset)
+  ).map((column) => column.key);
+  return [...new Set(keys)];
+};
+
+const sanitizeVisibleColumns = (keys) => {
+  const validKeys = new Set(STOCK_COLUMNS.map((column) => column.key));
+  const requiredKeys = STOCK_COLUMNS.filter((column) => column.required).map(
+    (column) => column.key
+  );
+
+  const cleaned = Array.isArray(keys)
+    ? keys.filter((key) => validKeys.has(key))
+    : [];
+
+  return [...new Set([...requiredKeys, ...cleaned])];
+};
+
+const readVisibleColumns = () => {
+  try {
+    const raw = localStorage.getItem(STOCK_COLUMNS_STORAGE_KEY);
+    if (!raw) return getColumnsByPreset("standard");
+    return sanitizeVisibleColumns(JSON.parse(raw));
+  } catch {
+    return getColumnsByPreset("standard");
+  }
+};
+
+const writeVisibleColumns = (keys) => {
+  try {
+    localStorage.setItem(STOCK_COLUMNS_STORAGE_KEY, JSON.stringify(keys));
+  } catch {
+    // localStorage mavjud bo'lmasa jim o'tamiz
+  }
+};
+
 export default function StockSummaryPage() {
   const canViewStockSummary = canViewPage("stock_summary");
   const canExportStockSummary = canDo("stock_summary", "export");
   const canPrintStockSummary = canDo("stock_summary", "print");
 
-  const canManageStockSummary =
-    canExportStockSummary || canPrintStockSummary;
-
+  const canManageStockSummary = canExportStockSummary || canPrintStockSummary;
 
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
@@ -131,40 +430,38 @@ export default function StockSummaryPage() {
 
   const [searchText, setSearchText] = useState("");
   const [filterInstitution, setFilterInstitution] = useState("");
+  const [filterInn, setFilterInn] = useState("");
   const [filterDrug, setFilterDrug] = useState("");
   const [filterYear, setFilterYear] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
 
-  const normalizeRow = (x, index) => {
-    const yearlyNeed = toNumber(x.yearly_need);
-    const givenQty = toNumber(x.issued_qty);
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState(readVisibleColumns);
+  const [isColumnChooserOpen, setIsColumnChooserOpen] = useState(false);
 
-    const remainingQty =
-      x.remaining_qty !== undefined && x.remaining_qty !== null
-        ? toNumber(x.remaining_qty)
-        : yearlyNeed - givenQty;
-
-    const remainingPercent =
-      x.remaining_percent !== undefined && x.remaining_percent !== null
-        ? toNumber(x.remaining_percent)
-        : yearlyNeed > 0
-        ? (remainingQty / yearlyNeed) * 100
-        : 0;
-
-    return {
-      id:
-        x.id ??
-        `${x.institution_name || "inst"}-${x.drug_name || "drug"}-${x.year || "year"}-${index}`,
-      institution_name: x.institution_name ?? "",
-      drug_name: x.drug_name ?? "",
-      year: x.year ?? "",
-      yearly_need: yearlyNeed,
-      given_qty: givenQty,
-      remaining_qty: remainingQty,
-      remaining_percent: remainingPercent,
-      status: normalizeStatusLabel(x.status),
-    };
+  const setColumnsByPreset = (preset) => {
+    const keys = getColumnsByPreset(preset);
+    setVisibleColumnKeys(keys);
+    writeVisibleColumns(keys);
   };
+
+  const toggleColumn = (key) => {
+    const column = STOCK_COLUMNS.find((item) => item.key === key);
+    if (!column || column.required) return;
+
+    setVisibleColumnKeys((current) => {
+      const exists = current.includes(key);
+      const next = sanitizeVisibleColumns(
+        exists ? current.filter((item) => item !== key) : [...current, key]
+      );
+      writeVisibleColumns(next);
+      return next;
+    });
+  };
+
+  const visibleColumns = useMemo(() => {
+    const visibleSet = new Set(sanitizeVisibleColumns(visibleColumnKeys));
+    return STOCK_COLUMNS.filter((column) => visibleSet.has(column.key));
+  }, [visibleColumnKeys]);
 
   const load = useCallback(async () => {
     try {
@@ -204,6 +501,7 @@ export default function StockSummaryPage() {
 
   const filteredItems = useMemo(() => {
     const q = searchText.trim().toLowerCase();
+    const innFilter = filterInn.trim();
 
     return items
       .filter((x) => {
@@ -211,14 +509,18 @@ export default function StockSummaryPage() {
           ? x.institution_name === filterInstitution
           : true;
 
+        const byInn = innFilter
+          ? String(x.institution_inn || "").includes(innFilter)
+          : true;
+
         const byDrug = filterDrug ? x.drug_name === filterDrug : true;
         const byYear = filterYear ? String(x.year) === String(filterYear) : true;
         const byStatus = filterStatus ? getStatusLabel(x) === filterStatus : true;
 
-        const text = `${x.institution_name} ${x.drug_name} ${x.year}`.toLowerCase();
+        const text = `${x.institution_name} ${x.institution_inn} ${x.drug_name} ${x.year}`.toLowerCase();
         const bySearch = q ? text.includes(q) : true;
 
-        return byInstitution && byDrug && byYear && byStatus && bySearch;
+        return byInstitution && byInn && byDrug && byYear && byStatus && bySearch;
       })
       .sort((a, b) => {
         if (Number(a.year) !== Number(b.year)) return Number(b.year) - Number(a.year);
@@ -227,7 +529,15 @@ export default function StockSummaryPage() {
         }
         return String(a.drug_name).localeCompare(String(b.drug_name));
       });
-  }, [items, searchText, filterInstitution, filterDrug, filterYear, filterStatus]);
+  }, [
+    items,
+    searchText,
+    filterInstitution,
+    filterInn,
+    filterDrug,
+    filterYear,
+    filterStatus,
+  ]);
 
   const stats = useMemo(() => {
     return {
@@ -250,6 +560,7 @@ export default function StockSummaryPage() {
   const clearFilters = () => {
     setSearchText("");
     setFilterInstitution("");
+    setFilterInn("");
     setFilterDrug("");
     setFilterYear("");
     setFilterStatus("");
@@ -258,13 +569,22 @@ export default function StockSummaryPage() {
   const exportToExcel = () => {
     const detailSheetData = filteredItems.map((x) => ({
       "Муассаса": x.institution_name,
+      "ИНН": x.institution_inn || "",
       "Дори": x.drug_name,
       "Йил": x.year,
-      "Йиллик эҳтиёж": toNumber(x.yearly_need),
+      "Йил бошидаги эҳтиёж": toNumber(x.yearly_need),
+      "Қўшимча эҳтиёж": toNumber(x.additional_need),
+      "Қўшимча %": x.additional_percent === null ? "" : toNumber(x.additional_percent),
+      "Қўшимча сони": toNumber(x.addition_count),
+      "Умумий эҳтиёж": toNumber(x.total_need),
       "Берилган миқдор": toNumber(x.given_qty),
       "Қолдиқ": toNumber(x.remaining_qty),
       "Қолдиқ %": toNumber(x.remaining_percent),
       "Статус": getStatusLabel(x),
+      "Нарх": x.price ?? "",
+      "Умумий эҳтиёж сумма": x.total_need_sum ?? "",
+      "Берилган сумма": x.given_sum ?? "",
+      "Қолдиқ сумма": x.remaining_sum ?? "",
     }));
 
     const statsSheetData = [
@@ -276,23 +596,40 @@ export default function StockSummaryPage() {
       { "Кўрсаткич": "Норма", "Қиймат": stats.normalCount },
     ];
 
+    const detailWs = XLSX.utils.json_to_sheet(detailSheetData);
+    const statsWs = XLSX.utils.json_to_sheet(statsSheetData);
+
+    detailWs["!cols"] = [
+      { wch: 35 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 10 },
+      { wch: 20 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 18 },
+    ];
+
+    statsWs["!cols"] = [{ wch: 28 }, { wch: 20 }];
+
     const workbook = XLSX.utils.book_new();
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(detailSheetData),
-      "StockSummary"
-    );
-
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(statsSheetData),
-      "Jami"
-    );
+    XLSX.utils.book_append_sheet(workbook, detailWs, "StockSummary");
+    XLSX.utils.book_append_sheet(workbook, statsWs, "Jami");
 
     const parts = ["StockSummary"];
     if (filterYear) parts.push(`year_${filterYear}`);
     if (filterInstitution) parts.push(`inst_${filterInstitution}`);
+    if (filterInn) parts.push(`inn_${filterInn}`);
     if (filterDrug) parts.push(`drug_${filterDrug}`);
     if (filterStatus) parts.push("status");
 
@@ -368,9 +705,10 @@ export default function StockSummaryPage() {
     lineHeight: "1.15",
     verticalAlign: "top",
     whiteSpace: "normal",
-    wordBreak: "break-word",
-    overflowWrap: "anywhere",
+    wordBreak: "normal",
+    overflowWrap: "break-word",
     textAlign: "left",
+    minWidth: "95px",
   };
 
   const compactCell = {
@@ -378,13 +716,16 @@ export default function StockSummaryPage() {
     fontSize: "12px",
     verticalAlign: "top",
     lineHeight: "1.2",
+    minWidth: "95px",
   };
 
   const wrapCell = {
     ...compactCell,
     whiteSpace: "normal",
-    wordBreak: "break-word",
-    overflowWrap: "anywhere",
+    wordBreak: "normal",
+    overflowWrap: "break-word",
+    minWidth: "170px",
+    maxWidth: "320px",
   };
 
   const nowrapCell = {
@@ -392,9 +733,13 @@ export default function StockSummaryPage() {
     whiteSpace: "nowrap",
   };
 
+  const getCellStyle = (column) => (column.cell === "wrap" ? wrapCell : nowrapCell);
+
   if (!canViewStockSummary) {
     return <div className="page-container">Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.</div>;
   }
+
+  const visibleKeySet = new Set(visibleColumnKeys);
 
   return (
     <div className="page-container">
@@ -410,7 +755,6 @@ export default function StockSummaryPage() {
           Сизда ушбу саҳифада фақат кўриш ҳуқуқи бор.
         </p>
       ) : null}
-
 
       {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
 
@@ -450,6 +794,16 @@ export default function StockSummaryPage() {
             placeholder="Қидириш: муассаса, дори, йил"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
+          />
+
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Фильтр: ИНН"
+            value={filterInn}
+            onChange={(e) =>
+              setFilterInn(e.target.value.replace(/\D/g, "").slice(0, 9))
+            }
           />
 
           <select
@@ -516,56 +870,123 @@ export default function StockSummaryPage() {
         </div>
       </div>
 
-      <div className="table-wrap">
+      <div className="form-card" style={{ marginTop: "16px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "12px",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <strong>Омбор жадвали устунлари</strong>
+            <div style={{ color: "#475569", marginTop: "4px" }}>
+              Доим керак бўлмаган устунларни яшириб қўйиш мумкин. Танлов браузерда сақланади.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setIsColumnChooserOpen((value) => !value)}
+            >
+              {isColumnChooserOpen ? "Устунларни яшириш" : "Устунлар"} ({visibleColumns.length} / {STOCK_COLUMNS.length})
+            </button>
+            <button type="button" onClick={() => setColumnsByPreset("compact")}>
+              Ихчам
+            </button>
+            <button type="button" onClick={() => setColumnsByPreset("standard")}>
+              Стандарт
+            </button>
+            <button type="button" onClick={() => setColumnsByPreset("all")}>
+              Ҳаммаси
+            </button>
+          </div>
+        </div>
+
+        {isColumnChooserOpen ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+              gap: "10px",
+              marginTop: "12px",
+            }}
+          >
+            {COLUMN_GROUPS.map((group) => (
+              <div
+                key={group}
+                style={{
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "10px",
+                  padding: "10px",
+                  background: "#ffffff",
+                }}
+              >
+                <strong>{group}</strong>
+                <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
+                  {STOCK_COLUMNS.filter((column) => column.group === group).map(
+                    (column) => (
+                      <label
+                        key={column.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          color: column.required ? "#64748b" : "#0f172a",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={visibleKeySet.has(column.key)}
+                          disabled={column.required}
+                          onChange={() => toggleColumn(column.key)}
+                        />
+                        {column.label}
+                        {column.required ? " (мажбурий)" : ""}
+                      </label>
+                    )
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="table-wrap" style={{ overflowX: "auto" }}>
         <table
           className="grid-table"
           style={{
-            width: "100%",
+            width: "max-content",
+            minWidth: `${Math.max(visibleColumns.length * 105, 900)}px`,
             tableLayout: "auto",
           }}
         >
           <thead>
             <tr>
-              <th style={compactHeaderCell}>Муассаса</th>
-              <th style={compactHeaderCell}>Дори</th>
-              <th style={compactHeaderCell}>Йил</th>
-              <th style={compactHeaderCell}>Йиллик эҳтиёж</th>
-              <th style={compactHeaderCell}>Берилган миқдор</th>
-              <th style={compactHeaderCell}>Қолдиқ</th>
-              <th style={compactHeaderCell}>Қолдиқ %</th>
-              <th style={compactHeaderCell}>Статус</th>
+              {visibleColumns.map((column) => (
+                <th key={column.key} style={compactHeaderCell}>
+                  {column.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {!loading && filteredItems.length > 0 ? (
               filteredItems.map((x) => (
                 <tr key={x.id} style={getRowStyle(x)}>
-                  <td style={wrapCell}>{x.institution_name}</td>
-                  <td style={wrapCell}>{x.drug_name}</td>
-                  <td style={nowrapCell}>{x.year}</td>
-                  <td style={nowrapCell}>{fmt(x.yearly_need)}</td>
-                  <td style={nowrapCell}>{fmt(x.given_qty)}</td>
-                  <td style={nowrapCell}>{fmt(x.remaining_qty)}</td>
-                  <td style={nowrapCell}>{fmtPercent(x.remaining_percent)}%</td>
-                  <td style={nowrapCell}>
-                    <span
-                      style={{
-                        ...getStatusStyle(x),
-                        display: "inline-block",
-                        padding: "6px 10px",
-                        borderRadius: "999px",
-                        fontSize: "12px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {getStatusLabel(x)}
-                    </span>
-                  </td>
+                  {visibleColumns.map((column) => (
+                    <td key={column.key} style={getCellStyle(column)}>
+                      {column.render(x)}
+                    </td>
+                  ))}
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan="8" style={compactCell}>
+                <td colSpan={visibleColumns.length} style={compactCell}>
                   {loading ? "Юкланмоқда..." : "Маълумот йўқ"}
                 </td>
               </tr>
