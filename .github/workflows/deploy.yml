@@ -59,38 +59,29 @@ jobs:
             docker compose exec -T backend python manage.py migrate --noinput
             docker compose exec -T backend python manage.py collectstatic --noinput
 
-            # ── 7. Certbot o'rnatish ───────────────────────────────────────
+            # ── 6. Certbot o'rnatish ───────────────────────────────────────
             if ! command -v certbot &>/dev/null; then
               dnf install -y certbot python3-certbot-nginx
             fi
 
-            # ── 8. SSL sertifikat (faqat birinchi marta) ──────────────────
+            # ── 7. SSL sertifikat (faqat birinchi marta) ──────────────────
             CERT_LIVE="/etc/letsencrypt/live/doritaminot.uz/fullchain.pem"
             if [ ! -f "$CERT_LIVE" ]; then
-              # Vaqtinchalik HTTP config (challenge uchun)
-              cat > /etc/nginx/conf.d/doritaminot.conf <<'TMPNGINX'
-server {
-    listen 80;
-    server_name doritaminot.uz www.doritaminot.uz;
-    location / { return 200 'ok'; add_header Content-Type text/plain; }
-}
-TMPNGINX
+              printf 'server {\n    listen 80;\n    server_name doritaminot.uz www.doritaminot.uz;\n    location / { return 200 ok; add_header Content-Type text/plain; }\n}\n' > /etc/nginx/conf.d/doritaminot.conf
               systemctl stop httpd 2>/dev/null || true
               systemctl enable nginx
               nginx -t && (systemctl is-active --quiet nginx && systemctl reload nginx || systemctl start nginx)
-
-              # Sertifikat olish
               certbot certonly --nginx \
                 -d doritaminot.uz -d www.doritaminot.uz \
                 --non-interactive --agree-tos \
                 -m ${{ secrets.CERTBOT_EMAIL }}
             fi
 
-            # ── 9. Auto-yangilash (cron) ───────────────────────────────────
+            # ── 8. Auto-yangilash (cron) ───────────────────────────────────
             (crontab -l 2>/dev/null | grep -q 'certbot renew') || \
               { crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --post-hook 'systemctl reload nginx'"; } | crontab -
 
-            # ── 10. Nginx HTTPS konfiguratsiya ─────────────────────────────
+            # ── 9. Nginx HTTPS konfiguratsiya ─────────────────────────────
             cp /var/www/doritaminot/nginx/doritaminot.conf /etc/nginx/conf.d/doritaminot.conf
             systemctl stop httpd 2>/dev/null || true
             systemctl disable httpd 2>/dev/null || true
