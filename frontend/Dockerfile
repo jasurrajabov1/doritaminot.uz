@@ -1,8 +1,11 @@
-FROM python:3.12-slim
+FROM node:20-alpine AS builder
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install gunicorn
+COPY package*.json ./
+RUN npm ci
 COPY . .
-RUN python manage.py collectstatic --noinput
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "config.wsgi:application"]
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
