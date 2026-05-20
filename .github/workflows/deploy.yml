@@ -63,5 +63,7 @@ jobs:
             docker compose exec -T backend python manage.py collectstatic --noinput
 
             # ── 7. Nginx ishga tushirish ───────────────────────────────────
+            systemctl stop httpd 2>/dev/null || true
+            systemctl disable httpd 2>/dev/null || true
             nginx -t
             systemctl is-active --quiet nginx && systemctl reload nginx || systemctl start nginx
