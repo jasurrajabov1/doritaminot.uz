@@ -47,7 +47,8 @@ jobs:
               mkdir -p /var/www
               git clone https://github.com/jasurrajabov1/doritaminot.uz /var/www/doritaminot
             else
-              git -C /var/www/doritaminot pull origin main
+              git -C /var/www/doritaminot fetch origin main
+              git -C /var/www/doritaminot reset --hard origin/main
             fi
 
             # ── 5. Docker containers ───────────────────────────────────────
