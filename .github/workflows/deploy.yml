@@ -65,6 +65,8 @@ jobs:
             # ── 7. Nginx ishga tushirish ───────────────────────────────────
             systemctl stop httpd 2>/dev/null || true
             systemctl disable httpd 2>/dev/null || true
+            pkill -x nginx 2>/dev/null || true
+            sleep 2
             nginx -t
             systemctl enable nginx
-            systemctl reload-or-restart nginx
+            systemctl restart nginx
