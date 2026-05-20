@@ -1,0 +1,1568 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import api from "../api/client";
+import { canDo } from "../utils/permission";
+
+const ADDITION_REASON_OPTIONS = [
+  { value: "base_underestimated", label: "Йил бошида кам ҳисобланган" },
+  { value: "new_department", label: "Янги бўлим очилди" },
+  { value: "patient_increase", label: "Беморлар сони ошди" },
+  { value: "new_clinic", label: "Янги клиника иш бошлади" },
+  { value: "ssv_order", label: "ССВ топшириғи / қайта тақсимот" },
+  { value: "correction", label: "Ҳисоб-китобни тузатиш" },
+  { value: "other", label: "Бошқа" },
+];
+
+const NEED_ROW_COLUMN_STORAGE_KEY = "needRows.visibleColumns.v1";
+
+const NEED_ROW_TABLE_COLUMNS = [
+  { key: "institution", label: "Муассаса", group: "Асосий", locked: true, defaultVisible: true },
+  { key: "inn", label: "ИНН", group: "Асосий", defaultVisible: true },
+  { key: "drug", label: "Дори", group: "Асосий", locked: true, defaultVisible: true },
+  { key: "year", label: "Йил", group: "Асосий", locked: true, defaultVisible: true },
+  { key: "yearly_need", label: "Йил бошидаги эҳтиёж", group: "Асосий", defaultVisible: true },
+  { key: "quarterly_need", label: "Чораклик асосий", group: "Асосий", defaultVisible: false },
+  { key: "dpm_need", label: "ДПМ асосий", group: "Асосий", defaultVisible: false },
+  { key: "amb_rec_need", label: "Амб. асосий", group: "Асосий", defaultVisible: false },
+
+  { key: "additional_dpm_need", label: "Қўшимча ДПМ", group: "Қўшимча", defaultVisible: false },
+  { key: "additional_amb_rec_need", label: "Қўшимча амб.", group: "Қўшимча", defaultVisible: false },
+  { key: "additional_yearly_need", label: "Қўшимча жами", group: "Қўшимча", defaultVisible: true },
+  { key: "additional_percent", label: "Қўшимча %", group: "Қўшимча", defaultVisible: true },
+  { key: "additional_count", label: "Қўшимча сони", group: "Қўшимча", defaultVisible: true },
+  { key: "last_additional_date", label: "Охирги қўшимча", group: "Қўшимча", defaultVisible: true },
+  { key: "additional_risk_status", label: "Қўшимча хавф", group: "Қўшимча", defaultVisible: true },
+
+  { key: "total_yearly_need", label: "Жами эҳтиёж", group: "Ҳисоб-китоб", locked: true, defaultVisible: true },
+  { key: "total_quarterly_need", label: "Жами чораклик", group: "Ҳисоб-китоб", defaultVisible: false },
+  { key: "issued_qty", label: "Берилган миқдор", group: "Ҳисоб-китоб", defaultVisible: true },
+  { key: "remaining_qty", label: "Қолдиқ", group: "Ҳисоб-китоб", defaultVisible: true },
+  { key: "remaining_percent", label: "Қолдиқ %", group: "Ҳисоб-китоб", defaultVisible: true },
+
+  { key: "yearly_sum", label: "Йил бошидаги сумма", group: "Суммалар", defaultVisible: false },
+  { key: "additional_sum", label: "Қўшимча сумма", group: "Суммалар", defaultVisible: false },
+  { key: "total_need_sum", label: "Умумий эҳтиёж сумма", group: "Суммалар", defaultVisible: false },
+  { key: "given_sum", label: "Берилган сумма", group: "Суммалар", defaultVisible: false },
+  { key: "remaining_sum", label: "Қолдиқ сумма", group: "Суммалар", defaultVisible: false },
+
+  { key: "actions", label: "Амал", group: "Амал", locked: true, defaultVisible: true },
+];
+
+const NEED_ROW_COLUMN_GROUPS = ["Асосий", "Қўшимча", "Ҳисоб-китоб", "Суммалар", "Амал"];
+
+const DEFAULT_VISIBLE_NEED_ROW_COLUMNS = NEED_ROW_TABLE_COLUMNS
+  .filter((column) => column.defaultVisible || column.locked)
+  .map((column) => column.key);
+
+const getInitialVisibleNeedRowColumns = () => {
+  if (typeof window === "undefined") return DEFAULT_VISIBLE_NEED_ROW_COLUMNS;
+
+  try {
+    const raw = window.localStorage.getItem(NEED_ROW_COLUMN_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (!Array.isArray(parsed)) return DEFAULT_VISIBLE_NEED_ROW_COLUMNS;
+
+    const allowedKeys = new Set(NEED_ROW_TABLE_COLUMNS.map((column) => column.key));
+    const lockedKeys = NEED_ROW_TABLE_COLUMNS
+      .filter((column) => column.locked)
+      .map((column) => column.key);
+
+    return [...new Set([...parsed.filter((key) => allowedKeys.has(key)), ...lockedKeys])];
+  } catch {
+    return DEFAULT_VISIBLE_NEED_ROW_COLUMNS;
+  }
+};
+
+const getTodayIso = () => {
+  const d = new Date();
+  const localDate = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+};
+
+export default function NeedRowsPage() {
+  const canViewNeedRow = canDo("need_rows", "view");
+  const canAddNeedRow = canDo("need_rows", "add");
+  const canEditNeedRow = canDo("need_rows", "edit");
+  const canDeleteNeedRow = canDo("need_rows", "delete");
+
+  const canManageNeedRows = canAddNeedRow || canEditNeedRow || canDeleteNeedRow;
+  const canShowHistoryActions = canEditNeedRow || canDeleteNeedRow;
+
+  const [rows, setRows] = useState([]);
+  const [additions, setAdditions] = useState([]);
+  const [institutions, setInstitutions] = useState([]);
+  const [drugs, setDrugs] = useState([]);
+
+  const [institutionId, setInstitutionId] = useState("");
+  const [drugId, setDrugId] = useState("");
+  const [year, setYear] = useState("2026");
+  const [dpmNeed, setDpmNeed] = useState("");
+  const [ambRecNeed, setAmbRecNeed] = useState("");
+  const [editingId, setEditingId] = useState(null);
+
+  const [additionNeedRowId, setAdditionNeedRowId] = useState("");
+  const [additionInstitutionId, setAdditionInstitutionId] = useState("");
+  const [additionDrugId, setAdditionDrugId] = useState("");
+  const [additionYear, setAdditionYear] = useState("2026");
+  const [additionDpmQty, setAdditionDpmQty] = useState("");
+  const [additionAmbQty, setAdditionAmbQty] = useState("");
+  const [additionDate, setAdditionDate] = useState(() => getTodayIso());
+  const [additionReason, setAdditionReason] = useState("");
+  const [additionDocNumber, setAdditionDocNumber] = useState("");
+  const [additionDocDate, setAdditionDocDate] = useState("");
+  const [additionComment, setAdditionComment] = useState("");
+  const [editingAdditionId, setEditingAdditionId] = useState(null);
+  const [selectedHistoryRowId, setSelectedHistoryRowId] = useState("");
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [filterYear, setFilterYear] = useState("");
+  const [filterInstitution, setFilterInstitution] = useState("");
+  const [filterInn, setFilterInn] = useState("");
+  const [filterDrug, setFilterDrug] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [visibleNeedRowColumnKeys, setVisibleNeedRowColumnKeys] = useState(
+    getInitialVisibleNeedRowColumns
+  );
+
+  const isEditMode = editingId !== null;
+  const isEditingAddition = editingAdditionId !== null;
+
+  const canShowNeedRowForm = canAddNeedRow || (isEditMode && canEditNeedRow);
+  const canShowNeedRowActions = canViewNeedRow || canAddNeedRow || canEditNeedRow || canDeleteNeedRow;
+  const canShowAdditionForm = canAddNeedRow || (isEditingAddition && canEditNeedRow);
+
+  const toArray = (data) => {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.results)) return data.results;
+    if (Array.isArray(data?.data)) return data.data;
+    return [];
+  };
+
+  const parseNumber = (value) => {
+    const s = String(value ?? "").trim().replaceAll(" ", "").replace(",", ".");
+    if (!s) return 0;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const round3 = (num) => Math.round(num * 1000) / 1000;
+
+  const fmtQty = (value) => {
+    if (value === null || value === undefined || value === "") return "";
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "";
+    return n.toLocaleString("ru-RU", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 3,
+    });
+  };
+
+  const fmtMoney = (value) => {
+    if (value === null || value === undefined || value === "") return "Нарх йўқ";
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "Нарх йўқ";
+    return n.toLocaleString("ru-RU", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const fmtPercent = (value) => {
+    if (value === null || value === undefined || value === "") return "";
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "";
+    return `${n.toLocaleString("ru-RU", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}%`;
+  };
+
+  const getErrorMessage = (e, fallback) => {
+    const data = e?.response?.data;
+
+    if (typeof data === "string" && data.trim()) {
+      if (data.includes("must make a unique set")) {
+        return "Бу муассаса, дори ва йил учун эҳтиёж қатори аллақачон мавжуд.";
+      }
+      return data;
+    }
+
+    if (data?.detail) return data.detail;
+
+    if (Array.isArray(data?.non_field_errors) && data.non_field_errors[0]) {
+      const msg = data.non_field_errors[0];
+      if (String(msg).includes("must make a unique set")) {
+        return "Бу муассаса, дори ва йил учун эҳтиёж қатори аллақачон мавжуд.";
+      }
+      return msg;
+    }
+
+    const firstField = data && typeof data === "object" ? Object.keys(data)[0] : null;
+
+    if (firstField && Array.isArray(data[firstField]) && data[firstField][0]) {
+      const msg = `${firstField}: ${data[firstField][0]}`;
+      if (msg.includes("must make a unique set")) {
+        return "Бу муассаса, дори ва йил учун эҳтиёж қатори аллақачон мавжуд.";
+      }
+      return msg;
+    }
+
+    if (firstField && typeof data[firstField] === "string") {
+      const msg = `${firstField}: ${data[firstField]}`;
+      if (msg.includes("must make a unique set")) {
+        return "Бу муассаса, дори ва йил учун эҳтиёж қатори аллақачон мавжуд.";
+      }
+      return msg;
+    }
+
+    return fallback;
+  };
+
+  const compactHeaderCell = {
+    padding: "6px 6px",
+    fontSize: "12px",
+    lineHeight: "1.15",
+    verticalAlign: "top",
+    whiteSpace: "normal",
+    wordBreak: "normal",
+    overflowWrap: "break-word",
+    textAlign: "left",
+    minWidth: "90px",
+  };
+
+  const compactCell = {
+    padding: "5px 6px",
+    fontSize: "12px",
+    verticalAlign: "top",
+    lineHeight: "1.15",
+    minWidth: "90px",
+  };
+
+  const wrapCell = {
+    ...compactCell,
+    whiteSpace: "normal",
+    wordBreak: "normal",
+    overflowWrap: "break-word",
+    minWidth: "150px",
+    maxWidth: "260px",
+  };
+
+  const nowrapCell = {
+    ...compactCell,
+    whiteSpace: "nowrap",
+  };
+
+  const actionCellStyle = {
+    ...compactCell,
+    whiteSpace: "normal",
+    minWidth: "180px",
+  };
+
+  const actionButtonStyle = {
+    padding: "6px 10px",
+    fontSize: "12px",
+    lineHeight: "1.1",
+    borderRadius: "8px",
+  };
+
+  const needRowsTableStyle = {
+    width: "max-content",
+    minWidth: "2700px",
+    tableLayout: "auto",
+  };
+
+  const historyTableStyle = {
+    width: "max-content",
+    minWidth: "1650px",
+    tableLayout: "auto",
+  };
+
+  const normalizeRow = (x) => {
+    const additionalYearlyNeed = x.additional_yearly_need ?? x.additional_need ?? 0;
+    const totalYearlyNeed = x.total_yearly_need ?? x.total_need ?? x.yearly_need ?? 0;
+
+    return {
+      id: x.id,
+      institution: x.institution ?? x.institution_id ?? "",
+      institution_name: x.institution_name ?? x.institution?.name ?? "",
+      institution_inn: x.institution_inn ?? x.institution?.inn ?? "",
+      drug: x.drug ?? x.drug_id ?? "",
+      drug_name: x.drug_name ?? x.drug?.name ?? "",
+      year: x.year ?? "",
+      yearly_need: x.yearly_need ?? 0,
+      quarterly_need: x.quarterly_need ?? 0,
+      dpm_need: x.dpm_need ?? 0,
+      amb_rec_need: x.amb_rec_need ?? 0,
+
+      additional_dpm_need: x.additional_dpm_need ?? 0,
+      additional_amb_rec_need: x.additional_amb_rec_need ?? 0,
+      additional_yearly_need: additionalYearlyNeed,
+      total_yearly_need: totalYearlyNeed,
+      total_quarterly_need: x.total_quarterly_need ?? round3(Number(totalYearlyNeed || 0) / 4),
+      additional_percent: x.additional_percent ?? x.additional_need_percent ?? 0,
+      additional_count: x.additional_count ?? x.addition_count ?? 0,
+      last_additional_date: x.last_additional_date ?? "",
+      additional_risk_status: x.additional_risk_status ?? "Қўшимча йўқ",
+
+      additional_need: additionalYearlyNeed,
+      total_need: totalYearlyNeed,
+      additional_need_percent: x.additional_need_percent ?? x.additional_percent ?? 0,
+      addition_count: x.addition_count ?? x.additional_count ?? 0,
+
+      issued_qty: x.given_dpm ?? x.issued_qty ?? x.given_qty ?? 0,
+      remaining_qty: x.remaining ?? x.remaining_qty ?? x.remainder_qty ?? 0,
+
+      price: x.price,
+      yearly_sum: x.yearly_sum,
+      additional_sum: x.additional_sum,
+      total_need_sum: x.total_need_sum,
+      given_sum: x.given_sum,
+      remaining_sum: x.remaining_sum,
+      remaining_percent: x.remaining_percent ?? 0,
+    };
+  };
+
+  const normalizeAddition = (x) => {
+    return {
+      id: x.id,
+      need_row: x.need_row ?? x.need_row_id ?? "",
+      institution: x.institution ?? x.institution_id ?? "",
+      institution_name: x.institution_name ?? x.institution?.name ?? "",
+      institution_inn: x.institution_inn ?? x.institution?.inn ?? "",
+      drug: x.drug ?? x.drug_id ?? "",
+      drug_name: x.drug_name ?? x.drug?.name ?? "",
+      year: x.year ?? "",
+      added_qty: x.added_qty ?? x.total_additional_need ?? 0,
+      dpm_need_add: x.dpm_need_add ?? 0,
+      amb_rec_need_add: x.amb_rec_need_add ?? 0,
+      total_additional_need: x.total_additional_need ?? x.added_qty ?? 0,
+      addition_date: x.addition_date ?? "",
+      reason: x.reason ?? "",
+      reason_label: x.reason_label ?? x.reason ?? "",
+      doc_number: x.doc_number ?? x.document_number ?? "",
+      doc_date: x.doc_date ?? x.document_date ?? "",
+      comment: x.comment ?? "",
+      is_active: x.is_active ?? true,
+      cancel_reason: x.cancel_reason ?? "",
+      created_by_username: x.created_by_username ?? "",
+      created_at: x.created_at ?? "",
+    };
+  };
+
+  const load = async () => {
+    try {
+      const [rowsRes, additionsRes, institutionsRes, drugsRes] = await Promise.all([
+        api.get("/need-rows/"),
+        api.get("/need-row-additions/"),
+        api.get("/institutions/"),
+        api.get("/drugs/"),
+      ]);
+
+      setRows(toArray(rowsRes.data).map(normalizeRow));
+      setAdditions(toArray(additionsRes.data).map(normalizeAddition));
+      setInstitutions(toArray(institutionsRes.data));
+      setDrugs(toArray(drugsRes.data));
+      setError("");
+    } catch (e) {
+      console.error(e);
+      setError(getErrorMessage(e, "Рўйхатни юклашда хато бўлди."));
+    }
+  };
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        NEED_ROW_COLUMN_STORAGE_KEY,
+        JSON.stringify(visibleNeedRowColumnKeys)
+      );
+    } catch {
+      // localStorage available bo'lmasa ham sahifa ishlashi kerak
+    }
+  }, [visibleNeedRowColumnKeys]);
+
+  const hasNeedInput = String(dpmNeed).trim() !== "" || String(ambRecNeed).trim() !== "";
+
+  const computedYearlyNeed = hasNeedInput
+    ? round3(parseNumber(dpmNeed) + parseNumber(ambRecNeed))
+    : "";
+
+  const computedQuarterlyNeed =
+    computedYearlyNeed !== "" ? round3(Number(computedYearlyNeed) / 4) : "";
+
+  const computedTotalAdditionQty = round3(parseNumber(additionDpmQty) + parseNumber(additionAmbQty));
+
+  const selectedInstitution = useMemo(() => {
+    return institutions.find((item) => String(item.id) === String(institutionId));
+  }, [institutions, institutionId]);
+
+  const selectedInstitutionInn = selectedInstitution?.inn || "";
+
+  const selectedAdditionInstitution = useMemo(() => {
+    return institutions.find((item) => String(item.id) === String(additionInstitutionId));
+  }, [institutions, additionInstitutionId]);
+
+  const selectedAdditionInstitutionInn = selectedAdditionInstitution?.inn || "";
+
+  const getInstitutionName = useCallback(
+    (row) => {
+      if (row.institution_name) return row.institution_name;
+
+      const found = institutions.find((x) => String(x.id) === String(row.institution));
+      return found?.name || "";
+    },
+    [institutions]
+  );
+
+  const getInstitutionInn = useCallback(
+    (row) => {
+      if (row.institution_inn !== undefined && row.institution_inn !== null) {
+        return String(row.institution_inn || "");
+      }
+
+      const found = institutions.find((x) => String(x.id) === String(row.institution));
+      return String(found?.inn || "");
+    },
+    [institutions]
+  );
+
+  const getDrugName = useCallback(
+    (row) => {
+      if (row.drug_name) return row.drug_name;
+
+      const found = drugs.find((x) => String(x.id) === String(row.drug));
+      return found?.name || "";
+    },
+    [drugs]
+  );
+
+  const getNeedRowTitle = useCallback(
+    (row) => {
+      if (!row) return "";
+      const inn = getInstitutionInn(row);
+      const institution = getInstitutionName(row);
+      const drug = getDrugName(row);
+      return `${institution}${inn ? ` (${inn})` : ""} | ${drug} | ${row.year}`;
+    },
+    [getInstitutionInn, getInstitutionName, getDrugName]
+  );
+
+  const findAdditionNeedRow = () => {
+    if (additionNeedRowId) {
+      return rows.find((row) => String(row.id) === String(additionNeedRowId));
+    }
+
+    return rows.find((row) => {
+      return (
+        String(row.institution) === String(additionInstitutionId) &&
+        String(row.drug) === String(additionDrugId) &&
+        String(row.year) === String(additionYear)
+      );
+    });
+  };
+
+  const handleSelectAdditionNeedRow = (id) => {
+    setAdditionNeedRowId(id);
+
+    const row = rows.find((item) => String(item.id) === String(id));
+    if (!row) return;
+
+    setAdditionInstitutionId(String(row.institution ?? ""));
+    setAdditionDrugId(String(row.drug ?? ""));
+    setAdditionYear(String(row.year ?? "2026"));
+  };
+
+  const resetForm = () => {
+    setInstitutionId("");
+    setDrugId("");
+    setYear("2026");
+    setDpmNeed("");
+    setAmbRecNeed("");
+    setEditingId(null);
+    setError("");
+  };
+
+  const startEdit = (row) => {
+    setError("");
+    setSuccess("");
+    setEditingId(row.id);
+    setInstitutionId(String(row.institution ?? ""));
+    setDrugId(String(row.drug ?? ""));
+    setYear(String(row.year ?? ""));
+    setDpmNeed(String(row.dpm_need ?? ""));
+    setAmbRecNeed(String(row.amb_rec_need ?? ""));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const resetAdditionForm = () => {
+    setAdditionNeedRowId("");
+    setAdditionInstitutionId("");
+    setAdditionDrugId("");
+    setAdditionYear("2026");
+    setAdditionDpmQty("");
+    setAdditionAmbQty("");
+    setAdditionDate(getTodayIso());
+    setAdditionReason("");
+    setAdditionDocNumber("");
+    setAdditionDocDate("");
+    setAdditionComment("");
+    setEditingAdditionId(null);
+  };
+
+  const startAddAddition = (row) => {
+    setError("");
+    setSuccess("");
+    setEditingAdditionId(null);
+    setAdditionNeedRowId(String(row.id ?? ""));
+    setAdditionInstitutionId(String(row.institution ?? ""));
+    setAdditionDrugId(String(row.drug ?? ""));
+    setAdditionYear(String(row.year ?? "2026"));
+    setAdditionDpmQty("");
+    setAdditionAmbQty("");
+    setAdditionDate(getTodayIso());
+    setAdditionReason("");
+    setAdditionDocNumber("");
+    setAdditionDocDate("");
+    setAdditionComment("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const startEditAddition = (item) => {
+    setError("");
+    setSuccess("");
+    setEditingAdditionId(item.id);
+    setAdditionNeedRowId(String(item.need_row ?? ""));
+    setAdditionInstitutionId(String(item.institution ?? ""));
+    setAdditionDrugId(String(item.drug ?? ""));
+    setAdditionYear(String(item.year ?? "2026"));
+    setAdditionDpmQty(String(item.dpm_need_add ?? ""));
+    setAdditionAmbQty(String(item.amb_rec_need_add ?? ""));
+    setAdditionDate(item.addition_date || getTodayIso());
+    setAdditionReason(item.reason || "");
+    setAdditionDocNumber(item.doc_number || "");
+    setAdditionDocDate(item.doc_date || "");
+    setAdditionComment(item.comment || "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const showHistoryForRow = (row) => {
+    setSelectedHistoryRowId(String(row.id));
+    setTimeout(() => {
+      document.getElementById("need-additions-history")?.scrollIntoView({ behavior: "smooth" });
+    }, 0);
+  };
+
+  const validateAddition = () => {
+    const needRow = findAdditionNeedRow();
+
+    if (!needRow) {
+      setError("Аввал ушбу муассаса, дори ва йил учун асосий эҳтиёж қатори танланиши керак.");
+      return false;
+    }
+
+    const yearNum = Number(additionYear);
+    if (!Number.isInteger(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      setError("Қўшимча эҳтиёж йили тўғри киритилиши керак.");
+      return false;
+    }
+
+    const dpm = parseNumber(additionDpmQty);
+    const amb = parseNumber(additionAmbQty);
+
+    if (dpm < 0) {
+      setError("ДПМ бўйича қўшимча эҳтиёж манфий бўлиши мумкин эмас.");
+      return false;
+    }
+
+    if (amb < 0) {
+      setError("Амбулатор рецепт бўйича қўшимча эҳтиёж манфий бўлиши мумкин эмас.");
+      return false;
+    }
+
+    if (dpm <= 0 && amb <= 0) {
+      setError("Камида битта қўшимча эҳтиёж миқдори 0 дан катта бўлиши керак.");
+      return false;
+    }
+
+    if (!additionDate) {
+      setError("Қўшимча эҳтиёж санаси киритилиши керак.");
+      return false;
+    }
+
+    if (additionDate.slice(0, 4) !== String(yearNum)) {
+      setError("Қўшимча эҳтиёж санаси танланган йилга мос бўлиши керак.");
+      return false;
+    }
+
+    if (!additionReason) {
+      setError("Қўшимча эҳтиёж сабаби танланиши керак.");
+      return false;
+    }
+
+    if (additionReason === "other" && !additionComment.trim()) {
+      setError("Сабаб 'Бошқа' бўлса, изоҳ киритиш мажбурий.");
+      return false;
+    }
+
+    return true;
+  };
+
+  const buildAdditionPayload = () => {
+    const needRow = findAdditionNeedRow();
+    const dpm = round3(parseNumber(additionDpmQty));
+    const amb = round3(parseNumber(additionAmbQty));
+
+    return {
+      need_row: Number(needRow.id),
+      institution: Number(needRow.institution),
+      drug: Number(needRow.drug),
+      year: Number(needRow.year),
+      dpm_need_add: String(dpm),
+      amb_rec_need_add: String(amb),
+      added_qty: String(round3(dpm + amb)),
+      addition_date: additionDate,
+      reason: additionReason,
+      doc_number: additionDocNumber.trim(),
+      doc_date: additionDocDate || null,
+      comment: additionComment.trim(),
+    };
+  };
+
+  const handleAddAddition = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!validateAddition()) return;
+
+    try {
+      await api.post("/need-row-additions/", buildAdditionPayload());
+
+      setSuccess("Қўшимча эҳтиёж қўшилди.");
+      resetAdditionForm();
+      await load();
+    } catch (e) {
+      console.error(e);
+      setError(getErrorMessage(e, "Қўшимча эҳтиёж қўшишда хато бўлди."));
+    }
+  };
+
+  const handleSaveAddition = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!editingAdditionId) {
+      setError("Таҳрирланаётган қўшимча эҳтиёж топилмади.");
+      return;
+    }
+
+    if (!validateAddition()) return;
+
+    try {
+      await api.patch(`/need-row-additions/${editingAdditionId}/`, buildAdditionPayload());
+
+      setSuccess("Қўшимча эҳтиёж янгиланди.");
+      resetAdditionForm();
+      await load();
+    } catch (e) {
+      console.error(e);
+      setError(getErrorMessage(e, "Қўшимча эҳтиёжни сақлашда хато бўлди."));
+    }
+  };
+
+  const validate = () => {
+    if (!institutionId) {
+      setError("Муассаса танланиши шарт.");
+      return false;
+    }
+
+    if (!drugId) {
+      setError("Дори танланиши шарт.");
+      return false;
+    }
+
+    if (!year) {
+      setError("Йил мажбурий.");
+      return false;
+    }
+
+    const yearNum = Number(year);
+    if (!Number.isInteger(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      setError("Йил тўғри киритилиши керак.");
+      return false;
+    }
+
+    const dpm = parseNumber(dpmNeed);
+    const amb = parseNumber(ambRecNeed);
+
+    if (dpm < 0) {
+      setError("ДПМ бўйича эҳтиёж манфий бўлиши мумкин эмас.");
+      return false;
+    }
+
+    if (amb < 0) {
+      setError("Амбулатор рецепт бўйича эҳтиёж манфий бўлиши мумкин эмас.");
+      return false;
+    }
+
+    if (dpm <= 0 && amb <= 0) {
+      setError("Камида битта эҳтиёж киритилиши керак.");
+      return false;
+    }
+
+    const duplicateRow = rows.find((row) => {
+      const sameInstitution = String(row.institution) === String(institutionId);
+      const sameDrug = String(row.drug) === String(drugId);
+      const sameYear = String(row.year) === String(year);
+      const anotherRow = Number(row.id) !== Number(editingId);
+
+      return sameInstitution && sameDrug && sameYear && anotherRow;
+    });
+
+    if (duplicateRow) {
+      setError("Бу муассаса, дори ва йил учун эҳтиёж қатори аллақачон мавжуд.");
+      return false;
+    }
+
+    return true;
+  };
+
+  const buildPayload = () => {
+    const dpm = round3(parseNumber(dpmNeed));
+    const amb = round3(parseNumber(ambRecNeed));
+    const yearly = round3(dpm + amb);
+    const quarterly = round3(yearly / 4);
+
+    return {
+      institution: Number(institutionId),
+      drug: Number(drugId),
+      year: Number(year),
+      yearly_need: yearly,
+      quarterly_need: quarterly,
+      dpm_need: dpm,
+      amb_rec_need: amb,
+    };
+  };
+
+  const handleAdd = async () => {
+    try {
+      setError("");
+      setSuccess("");
+
+      if (!validate()) return;
+
+      await api.post("/need-rows/", buildPayload());
+
+      resetForm();
+      setSuccess("Эҳтиёж қатори қўшилди.");
+      await load();
+    } catch (e) {
+      console.error(e);
+      setError(getErrorMessage(e, "Қўшишда хато бўлди."));
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      setError("");
+      setSuccess("");
+
+      if (editingId === null) {
+        setError("Таҳрирланаётган ёзув топилмади.");
+        return;
+      }
+
+      if (!validate()) return;
+
+      await api.patch(`/need-rows/${editingId}/`, buildPayload());
+
+      resetForm();
+      setSuccess("Эҳтиёж қатори янгиланди.");
+      await load();
+    } catch (e) {
+      console.error(e);
+      setError(getErrorMessage(e, "Сақлашда хато бўлди."));
+    }
+  };
+
+  const handleDelete = async (id) => {
+    const ok = window.confirm("Ростдан ҳам асосий эҳтиёж қаторини ўчирмоқчимисиз?");
+    if (!ok) return;
+
+    try {
+      setError("");
+      setSuccess("");
+
+      await api.delete(`/need-rows/${id}/`);
+
+      if (Number(editingId) === Number(id)) {
+        resetForm();
+      }
+
+      setSuccess("Эҳтиёж қатори ўчирилди.");
+      await load();
+    } catch (e) {
+      console.error(e);
+      setError(getErrorMessage(e, "Ўчиришда хато бўлди."));
+    }
+  };
+
+  const handleCancelAddition = async (item) => {
+    if (!item.is_active) {
+      setError("Бу қўшимча эҳтиёж аввал бекор қилинган.");
+      return;
+    }
+
+    const reason = window.prompt("Қўшимча эҳтиёжни бекор қилиш сабабини киритинг:");
+    if (reason === null) return;
+
+    if (!reason.trim()) {
+      setError("Бекор қилиш сабаби киритилиши шарт.");
+      return;
+    }
+
+    try {
+      setError("");
+      setSuccess("");
+
+      await api.delete(
+        `/need-row-additions/${item.id}/?cancel_reason=${encodeURIComponent(reason.trim())}`
+      );
+
+      setSuccess("Қўшимча эҳтиёж бекор қилинди.");
+      await load();
+    } catch (e) {
+      console.error(e);
+      setError(getErrorMessage(e, "Қўшимча эҳтиёжни бекор қилишда хато бўлди."));
+    }
+  };
+
+  const handleCancel = () => {
+    resetForm();
+    setSuccess("");
+  };
+
+  const handleClearFilters = () => {
+    setFilterYear("");
+    setFilterInstitution("");
+    setFilterInn("");
+    setFilterDrug("");
+    setSearchText("");
+    setSelectedHistoryRowId("");
+  };
+
+  const yearOptions = useMemo(() => {
+    return [...new Set(rows.map((row) => String(row.year)).filter(Boolean))].sort(
+      (a, b) => Number(b) - Number(a)
+    );
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const byYear = filterYear ? String(row.year) === String(filterYear) : true;
+      const byInstitution = filterInstitution
+        ? String(row.institution) === String(filterInstitution)
+        : true;
+      const byDrug = filterDrug ? String(row.drug) === String(filterDrug) : true;
+
+      const text = searchText.trim().toLowerCase();
+      const innText = filterInn.trim();
+
+      const institutionName = getInstitutionName(row).toLowerCase();
+      const institutionInn = getInstitutionInn(row);
+      const drugName = getDrugName(row).toLowerCase();
+
+      const byInn = innText ? institutionInn.includes(innText) : true;
+      const bySearch = text
+        ? institutionName.includes(text) || institutionInn.includes(text) || drugName.includes(text)
+        : true;
+
+      return byYear && byInstitution && byDrug && byInn && bySearch;
+    });
+  }, [
+    rows,
+    filterYear,
+    filterInstitution,
+    filterInn,
+    filterDrug,
+    searchText,
+    getInstitutionName,
+    getInstitutionInn,
+    getDrugName,
+  ]);
+
+  const filteredAdditions = useMemo(() => {
+    return additions.filter((item) => {
+      const bySelectedRow = selectedHistoryRowId
+        ? String(item.need_row) === String(selectedHistoryRowId)
+        : true;
+
+      const byYear = filterYear ? String(item.year) === String(filterYear) : true;
+      const byInstitution = filterInstitution
+        ? String(item.institution) === String(filterInstitution)
+        : true;
+      const byDrug = filterDrug ? String(item.drug) === String(filterDrug) : true;
+
+      const text = searchText.trim().toLowerCase();
+      const innText = filterInn.trim();
+
+      const institutionName = getInstitutionName(item).toLowerCase();
+      const institutionInn = getInstitutionInn(item);
+      const drugName = getDrugName(item).toLowerCase();
+      const reason = String(item.reason_label || item.reason || "").toLowerCase();
+      const docNumber = String(item.doc_number || "").toLowerCase();
+      const comment = String(item.comment || "").toLowerCase();
+
+      const byInn = innText ? institutionInn.includes(innText) : true;
+      const bySearch = text
+        ? institutionName.includes(text) ||
+          institutionInn.includes(text) ||
+          drugName.includes(text) ||
+          reason.includes(text) ||
+          docNumber.includes(text) ||
+          comment.includes(text)
+        : true;
+
+      return bySelectedRow && byYear && byInstitution && byDrug && byInn && bySearch;
+    });
+  }, [
+    additions,
+    selectedHistoryRowId,
+    filterYear,
+    filterInstitution,
+    filterDrug,
+    filterInn,
+    searchText,
+    getInstitutionName,
+    getInstitutionInn,
+    getDrugName,
+  ]);
+
+  const selectedHistoryRow = useMemo(() => {
+    if (!selectedHistoryRowId) return null;
+    return rows.find((row) => String(row.id) === String(selectedHistoryRowId)) || null;
+  }, [rows, selectedHistoryRowId]);
+
+  const getPercentClass = (value) => {
+    const n = Number(value);
+
+    if (!Number.isFinite(n)) return "percent-badge percent-normal";
+    if (n < 20) return "percent-badge percent-critical";
+    if (n < 30) return "percent-badge percent-low";
+    if (n < 50) return "percent-badge percent-warning";
+    return "percent-badge percent-normal";
+  };
+
+  const getRiskStyle = (status) => {
+    if (status === "Критик") return { background: "#fee2e2", color: "#991b1b" };
+    if (status === "Юқори хавф") return { background: "#ffedd5", color: "#9a3412" };
+    if (status === "Огоҳлантириш") return { background: "#fef3c7", color: "#92400e" };
+    if (status === "Тушунарли") return { background: "#dbeafe", color: "#1e40af" };
+    if (status === "Норма") return { background: "#dcfce7", color: "#166534" };
+    return { background: "#f1f5f9", color: "#475569" };
+  };
+
+  const availableNeedRowColumns = NEED_ROW_TABLE_COLUMNS.filter((column) => {
+    return column.key !== "actions" || canShowNeedRowActions;
+  });
+
+  const normalizedVisibleNeedRowColumnKeys = [
+    ...new Set([
+      ...visibleNeedRowColumnKeys,
+      ...availableNeedRowColumns.filter((column) => column.locked).map((column) => column.key),
+    ]),
+  ].filter((key) => availableNeedRowColumns.some((column) => column.key === key));
+
+  const visibleNeedRowColumns = availableNeedRowColumns.filter((column) => {
+    return normalizedVisibleNeedRowColumnKeys.includes(column.key);
+  });
+
+  const visibleNeedRowColumnCount = Math.max(visibleNeedRowColumns.length, 1);
+
+  const dynamicNeedRowsTableStyle = {
+    ...needRowsTableStyle,
+    minWidth: `${Math.max(1050, visibleNeedRowColumnCount * 118)}px`,
+  };
+
+  const toggleNeedRowColumn = (key) => {
+    const column = NEED_ROW_TABLE_COLUMNS.find((item) => item.key === key);
+
+    if (!column || column.locked) return;
+
+    setVisibleNeedRowColumnKeys((prev) => {
+      const next = prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key];
+      const lockedKeys = NEED_ROW_TABLE_COLUMNS
+        .filter((item) => item.locked)
+        .map((item) => item.key);
+
+      return [...new Set([...next, ...lockedKeys])];
+    });
+  };
+
+  const setDefaultNeedRowColumns = () => {
+    setVisibleNeedRowColumnKeys(DEFAULT_VISIBLE_NEED_ROW_COLUMNS);
+  };
+
+  const setAllNeedRowColumns = () => {
+    setVisibleNeedRowColumnKeys(availableNeedRowColumns.map((column) => column.key));
+  };
+
+  const setCompactNeedRowColumns = () => {
+    setVisibleNeedRowColumnKeys([
+      "institution",
+      "drug",
+      "year",
+      "yearly_need",
+      "additional_yearly_need",
+      "total_yearly_need",
+      "issued_qty",
+      "remaining_qty",
+      "remaining_percent",
+      "actions",
+    ]);
+  };
+
+  const visibleColumnLabel = `${visibleNeedRowColumnCount} / ${availableNeedRowColumns.length}`;
+
+  const needRowCellRenderers = {
+    institution: (row, key) => <td key={key} style={wrapCell}>{getInstitutionName(row)}</td>,
+    inn: (row, key) => <td key={key} style={nowrapCell}>{getInstitutionInn(row) || "—"}</td>,
+    drug: (row, key) => <td key={key} style={wrapCell}>{getDrugName(row)}</td>,
+    year: (row, key) => <td key={key} style={nowrapCell}>{row.year}</td>,
+    yearly_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.yearly_need)}</td>,
+    quarterly_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.quarterly_need)}</td>,
+    dpm_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.dpm_need)}</td>,
+    amb_rec_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.amb_rec_need)}</td>,
+    additional_dpm_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.additional_dpm_need)}</td>,
+    additional_amb_rec_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.additional_amb_rec_need)}</td>,
+    additional_yearly_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.additional_yearly_need)}</td>,
+    total_yearly_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.total_yearly_need)}</td>,
+    total_quarterly_need: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.total_quarterly_need)}</td>,
+    additional_percent: (row, key) => <td key={key} style={nowrapCell}>{fmtPercent(row.additional_percent)}</td>,
+    additional_count: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.additional_count)}</td>,
+    last_additional_date: (row, key) => <td key={key} style={nowrapCell}>{row.last_additional_date || "—"}</td>,
+    additional_risk_status: (row, key) => (
+      <td key={key} style={nowrapCell}>
+        <span
+          style={{
+            ...getRiskStyle(row.additional_risk_status),
+            padding: "3px 8px",
+            borderRadius: "999px",
+            display: "inline-block",
+          }}
+        >
+          {row.additional_risk_status || "—"}
+        </span>
+      </td>
+    ),
+    issued_qty: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.issued_qty)}</td>,
+    remaining_qty: (row, key) => <td key={key} style={nowrapCell}>{fmtQty(row.remaining_qty)}</td>,
+    yearly_sum: (row, key) => <td key={key} style={nowrapCell}>{fmtMoney(row.yearly_sum)}</td>,
+    additional_sum: (row, key) => <td key={key} style={nowrapCell}>{fmtMoney(row.additional_sum)}</td>,
+    total_need_sum: (row, key) => <td key={key} style={nowrapCell}>{fmtMoney(row.total_need_sum)}</td>,
+    given_sum: (row, key) => <td key={key} style={nowrapCell}>{fmtMoney(row.given_sum)}</td>,
+    remaining_sum: (row, key) => <td key={key} style={nowrapCell}>{fmtMoney(row.remaining_sum)}</td>,
+    remaining_percent: (row, key) => (
+      <td key={key} style={nowrapCell}>
+        <span className={getPercentClass(row.remaining_percent)}>
+          {fmtPercent(row.remaining_percent)}
+        </span>
+      </td>
+    ),
+    actions: (row, key) => (
+      <td key={key} style={actionCellStyle}>
+        <div className="actions-cell" style={{ gap: "6px", flexWrap: "wrap" }}>
+          {canAddNeedRow ? (
+            <button type="button" style={actionButtonStyle} onClick={() => startAddAddition(row)}>
+              Қўшимча
+            </button>
+          ) : null}
+
+          {canViewNeedRow ? (
+            <button type="button" style={actionButtonStyle} onClick={() => showHistoryForRow(row)}>
+              Тарих
+            </button>
+          ) : null}
+
+          {canEditNeedRow ? (
+            <button type="button" style={actionButtonStyle} onClick={() => startEdit(row)}>
+              Таҳрирлаш
+            </button>
+          ) : null}
+
+          {canDeleteNeedRow ? (
+            <button type="button" style={actionButtonStyle} onClick={() => handleDelete(row.id)}>
+              Ўчириш
+            </button>
+          ) : null}
+        </div>
+      </td>
+    ),
+  };
+
+  const renderNeedRowCell = (column, row) => {
+    const renderer = needRowCellRenderers[column.key];
+    return renderer ? renderer(row, column.key) : null;
+  };
+
+  return (
+    <div className="page-container">
+      <h2>Эҳтиёж қаторлари</h2>
+      <p style={{ color: "#475569", marginTop: "4px" }}>
+        Йил бошидаги асосий эҳтиёж алоҳида сақланади. Йил давомидаги қўшимча эҳтиёжлар журналга ёзилади.
+      </p>
+
+      {!canManageNeedRows ? (
+        <p style={{ color: "#475569" }}>Сизда ушбу саҳифада фақат кўриш ҳуқуқи бор.</p>
+      ) : null}
+
+      {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
+      {success ? <p style={{ color: "#166534" }}>{success}</p> : null}
+
+      {canShowNeedRowForm ? (
+        <div className="form-card">
+          <h3 style={{ marginTop: 0 }}>Йил бошидаги асосий эҳтиёж</h3>
+          <div className="form-row">
+            <select value={institutionId} onChange={(e) => setInstitutionId(e.target.value)}>
+              <option value="">Муассасани танланг</option>
+              {institutions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}{item.inn ? ` (${item.inn})` : ""}
+                </option>
+              ))}
+            </select>
+
+            <input placeholder="Муассаса ИНН" value={selectedInstitutionInn} readOnly />
+
+            <select value={drugId} onChange={(e) => setDrugId(e.target.value)}>
+              <option value="">Дорини танланг</option>
+              {drugs.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+
+            <input placeholder="Йил" value={year} onChange={(e) => setYear(e.target.value)} />
+            <input placeholder="Йиллик асосий эҳтиёж" value={computedYearlyNeed} readOnly />
+            <input placeholder="Чораклик асосий эҳтиёж" value={computedQuarterlyNeed} readOnly />
+            <input
+              placeholder="ДПМ бўйича асосий эҳтиёж"
+              value={dpmNeed}
+              onChange={(e) => setDpmNeed(e.target.value)}
+              inputMode="decimal"
+            />
+            <input
+              placeholder="Амбулатор рецепт бўйича асосий эҳтиёж"
+              value={ambRecNeed}
+              onChange={(e) => setAmbRecNeed(e.target.value)}
+              inputMode="decimal"
+            />
+
+            {!isEditMode ? (
+              canAddNeedRow ? (
+                <button className="primary" type="button" onClick={handleAdd}>
+                  Қўшиш
+                </button>
+              ) : null
+            ) : (
+              <>
+                {canEditNeedRow ? (
+                  <button className="primary" type="button" onClick={handleSave}>
+                    Сақлаш
+                  </button>
+                ) : null}
+
+                <button type="button" onClick={handleCancel}>
+                  Бекор қилиш
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {canShowAdditionForm ? (
+        <div className="form-card" style={{ marginTop: "16px" }}>
+          <h3 style={{ marginTop: 0 }}>
+            {isEditingAddition ? "Қўшимча эҳтиёжни таҳрирлаш" : "Қўшимча эҳтиёж қўшиш"}
+          </h3>
+          <p style={{ color: "#475569", marginTop: "4px" }}>
+            Асосий NeedRow ўзгармайди. Бу ерда қўшимча ДПМ ва амбулатор эҳтиёж алоҳида журналга сақланади.
+          </p>
+
+          <div className="form-row">
+            <select value={additionNeedRowId} onChange={(e) => handleSelectAdditionNeedRow(e.target.value)}>
+              <option value="">Асосий эҳтиёж қаторини танланг</option>
+              {rows.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {getNeedRowTitle(row)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={additionInstitutionId}
+              onChange={(e) => {
+                setAdditionInstitutionId(e.target.value);
+                setAdditionNeedRowId("");
+              }}
+            >
+              <option value="">Муассасани танланг</option>
+              {institutions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}{item.inn ? ` (${item.inn})` : ""}
+                </option>
+              ))}
+            </select>
+
+            <input placeholder="Муассаса ИНН" value={selectedAdditionInstitutionInn} readOnly />
+
+            <select
+              value={additionDrugId}
+              onChange={(e) => {
+                setAdditionDrugId(e.target.value);
+                setAdditionNeedRowId("");
+              }}
+            >
+              <option value="">Дорини танланг</option>
+              {drugs.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+
+            <input
+              placeholder="Йил"
+              value={additionYear}
+              onChange={(e) => {
+                setAdditionYear(e.target.value);
+                setAdditionNeedRowId("");
+              }}
+              inputMode="numeric"
+            />
+
+            <input
+              placeholder="ДПМ қўшимча"
+              value={additionDpmQty}
+              onChange={(e) => setAdditionDpmQty(e.target.value)}
+              inputMode="decimal"
+            />
+
+            <input
+              placeholder="Амб. рец. қўшимча"
+              value={additionAmbQty}
+              onChange={(e) => setAdditionAmbQty(e.target.value)}
+              inputMode="decimal"
+            />
+
+            <input placeholder="Жами қўшимча" value={computedTotalAdditionQty || ""} readOnly />
+
+            <input type="date" value={additionDate} onChange={(e) => setAdditionDate(e.target.value)} />
+
+            <select value={additionReason} onChange={(e) => setAdditionReason(e.target.value)}>
+              <option value="">Сабабни танланг</option>
+              {ADDITION_REASON_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+
+            <input
+              placeholder="Ҳужжат рақами"
+              value={additionDocNumber}
+              onChange={(e) => setAdditionDocNumber(e.target.value)}
+            />
+
+            <input type="date" value={additionDocDate} onChange={(e) => setAdditionDocDate(e.target.value)} />
+
+            <input
+              placeholder={additionReason === "other" ? "Изоҳ мажбурий" : "Изоҳ"}
+              value={additionComment}
+              onChange={(e) => setAdditionComment(e.target.value)}
+            />
+
+            {!isEditingAddition ? (
+              canAddNeedRow ? (
+                <button className="primary" type="button" onClick={handleAddAddition}>
+                  Қўшимча қўшиш
+                </button>
+              ) : null
+            ) : (
+              <>
+                {canEditNeedRow ? (
+                  <button className="primary" type="button" onClick={handleSaveAddition}>
+                    Сақлаш
+                  </button>
+                ) : null}
+              </>
+            )}
+
+            <button type="button" onClick={resetAdditionForm}>
+              Тозалаш
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="form-card" style={{ marginTop: "16px" }}>
+        <div className="filter-row">
+          <input
+            placeholder="Қидириш: муассаса, ИНН ёки дори"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+          <input
+            value={filterInn}
+            onChange={(e) => setFilterInn(e.target.value.replace(/\D/g, "").slice(0, 9))}
+            placeholder="Фильтр: ИНН"
+          />
+
+          <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)}>
+            <option value="">Барча йиллар</option>
+            {yearOptions.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+
+          <select value={filterInstitution} onChange={(e) => setFilterInstitution(e.target.value)}>
+            <option value="">Барча муассасалар</option>
+            {institutions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+
+          <select value={filterDrug} onChange={(e) => setFilterDrug(e.target.value)}>
+            <option value="">Барча дорилар</option>
+            {drugs.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+
+          <button type="button" onClick={handleClearFilters}>
+            Тозалаш
+          </button>
+        </div>
+      </div>
+
+      <div className="form-card" style={{ marginTop: "16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+          <div>
+            <h3 style={{ margin: "0 0 4px" }}>Жадвал устунлари</h3>
+            <p style={{ margin: 0, color: "#475569" }}>
+              Доим керак бўлмайдиган устунларни яшириб қўйиш мумкин. Танлов браузерда сақланади.
+            </p>
+          </div>
+
+          <div className="actions-cell" style={{ gap: "8px", flexWrap: "wrap" }}>
+            <button type="button" onClick={() => setShowColumnSettings((value) => !value)}>
+              Устунлар ({visibleColumnLabel})
+            </button>
+            <button type="button" onClick={setCompactNeedRowColumns}>Ихчам</button>
+            <button type="button" onClick={setDefaultNeedRowColumns}>Стандарт</button>
+            <button type="button" onClick={setAllNeedRowColumns}>Ҳаммаси</button>
+          </div>
+        </div>
+
+        {showColumnSettings ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+              gap: "12px",
+              marginTop: "14px",
+            }}
+          >
+            {NEED_ROW_COLUMN_GROUPS.map((group) => {
+              const groupColumns = availableNeedRowColumns.filter((column) => column.group === group);
+
+              if (!groupColumns.length) return null;
+
+              return (
+                <div
+                  key={group}
+                  style={{
+                    border: "1px solid #dbe3ef",
+                    borderRadius: "10px",
+                    padding: "10px",
+                    background: "#fff",
+                  }}
+                >
+                  <strong style={{ display: "block", marginBottom: "8px" }}>{group}</strong>
+
+                  {groupColumns.map((column) => (
+                    <label
+                      key={column.key}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        fontSize: "13px",
+                        marginBottom: "7px",
+                        color: column.locked ? "#64748b" : "#0f172a",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={normalizedVisibleNeedRowColumnKeys.includes(column.key)}
+                        disabled={column.locked}
+                        onChange={() => toggleNeedRowColumn(column.key)}
+                      />
+                      <span>{column.label}{column.locked ? " (мажбурий)" : ""}</span>
+                    </label>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="table-wrap" style={{ overflowX: "auto" }}>
+        <table className="grid-table" style={dynamicNeedRowsTableStyle}>
+          <thead>
+            <tr>
+              {visibleNeedRowColumns.map((column) => (
+                <th key={column.key} style={compactHeaderCell}>{column.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.length > 0 ? (
+              filteredRows.map((row) => (
+                <tr key={row.id}>
+                  {visibleNeedRowColumns.map((column) => renderNeedRowCell(column, row))}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={visibleNeedRowColumnCount} style={compactCell}>
+                  Маълумот йўқ
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div id="need-additions-history" className="table-wrap" style={{ marginTop: "16px", overflowX: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
+          <div>
+            <h3 style={{ margin: "0 0 6px" }}>Қўшимча эҳтиёжлар тарихи</h3>
+            <p style={{ margin: 0, color: "#475569" }}>
+              {selectedHistoryRow
+                ? `Танланган қатор: ${getNeedRowTitle(selectedHistoryRow)}`
+                : "Барча қўшимча эҳтиёжлар кўрсатилмоқда."}
+            </p>
+          </div>
+
+          {selectedHistoryRowId ? (
+            <button type="button" onClick={() => setSelectedHistoryRowId("")}>Барча тарих</button>
+          ) : null}
+        </div>
+
+        <table className="grid-table" style={{ ...historyTableStyle, marginTop: "10px" }}>
+          <thead>
+            <tr>
+              <th style={compactHeaderCell}>Сана</th>
+              <th style={compactHeaderCell}>Муассаса</th>
+              <th style={compactHeaderCell}>ИНН</th>
+              <th style={compactHeaderCell}>Дори</th>
+              <th style={compactHeaderCell}>Йил</th>
+              <th style={compactHeaderCell}>ДПМ қўшимча</th>
+              <th style={compactHeaderCell}>Амб. қўшимча</th>
+              <th style={compactHeaderCell}>Жами қўшимча</th>
+              <th style={compactHeaderCell}>Сабаб</th>
+              <th style={compactHeaderCell}>Ҳужжат</th>
+              <th style={compactHeaderCell}>Изоҳ</th>
+              <th style={compactHeaderCell}>Киритган</th>
+              <th style={compactHeaderCell}>Ҳолат</th>
+              {canShowHistoryActions ? <th style={compactHeaderCell}>Амал</th> : null}
+            </tr>
+          </thead>
+
+          <tbody>
+            {filteredAdditions.length > 0 ? (
+              filteredAdditions.map((item) => (
+                <tr key={item.id}>
+                  <td style={nowrapCell}>{item.addition_date || "—"}</td>
+                  <td style={wrapCell}>{getInstitutionName(item)}</td>
+                  <td style={nowrapCell}>{getInstitutionInn(item) || "—"}</td>
+                  <td style={wrapCell}>{getDrugName(item)}</td>
+                  <td style={nowrapCell}>{item.year}</td>
+                  <td style={nowrapCell}>{fmtQty(item.dpm_need_add)}</td>
+                  <td style={nowrapCell}>{fmtQty(item.amb_rec_need_add)}</td>
+                  <td style={nowrapCell}>{fmtQty(item.total_additional_need)}</td>
+                  <td style={wrapCell}>{item.reason_label || item.reason || "—"}</td>
+                  <td style={wrapCell}>
+                    {item.doc_number || item.doc_date
+                      ? `${item.doc_number || "—"}${item.doc_date ? ` / ${item.doc_date}` : ""}`
+                      : "—"}
+                  </td>
+                  <td style={wrapCell}>{item.comment || item.cancel_reason || "—"}</td>
+                  <td style={nowrapCell}>{item.created_by_username || "—"}</td>
+                  <td style={nowrapCell}>
+                    <span
+                      style={{
+                        background: item.is_active ? "#dcfce7" : "#fee2e2",
+                        color: item.is_active ? "#166534" : "#991b1b",
+                        padding: "3px 8px",
+                        borderRadius: "999px",
+                        display: "inline-block",
+                      }}
+                    >
+                      {item.is_active ? "Фаол" : "Бекор қилинган"}
+                    </span>
+                  </td>
+
+                  {canShowHistoryActions ? (
+                    <td style={actionCellStyle}>
+                      <div className="actions-cell" style={{ gap: "6px", flexWrap: "wrap" }}>
+                        {canEditNeedRow && item.is_active ? (
+                          <button type="button" style={actionButtonStyle} onClick={() => startEditAddition(item)}>
+                            Таҳрирлаш
+                          </button>
+                        ) : null}
+
+                        {canDeleteNeedRow && item.is_active ? (
+                          <button type="button" style={actionButtonStyle} onClick={() => handleCancelAddition(item)}>
+                            Бекор қилиш
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  ) : null}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={canShowHistoryActions ? 14 : 13} style={compactCell}>
+                  Қўшимча эҳтиёжлар тарихи йўқ
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
