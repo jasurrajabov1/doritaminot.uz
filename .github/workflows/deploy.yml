@@ -62,6 +62,7 @@ jobs:
 
             # ── 6. Certbot o'rnatish ───────────────────────────────────────
             if ! command -v certbot &>/dev/null; then
+              dnf install -y epel-release
               dnf install -y certbot python3-certbot-nginx
             fi
 
