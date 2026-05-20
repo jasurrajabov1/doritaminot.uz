@@ -19,15 +19,49 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 30m
           script: |
+            set -e
+
+            # ── 1. Docker ──────────────────────────────────────────────────
+            if ! command -v docker &>/dev/null; then
+              dnf install -y dnf-plugins-core
+              dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+              dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+              systemctl enable --now docker
+            fi
+
+            # ── 2. Git ─────────────────────────────────────────────────────
+            if ! command -v git &>/dev/null; then
+              dnf install -y git
+            fi
+
+            # ── 3. Nginx ───────────────────────────────────────────────────
+            if ! command -v nginx &>/dev/null; then
+              dnf install -y nginx
+              systemctl enable nginx
+            fi
+
+            # ── 4. Loyiha klonlash yoki yangilash ──────────────────────────
+            if [ ! -d /var/www/doritaminot/.git ]; then
+              mkdir -p /var/www
+              git clone https://github.com/jasurrajabov1/doritaminot.uz /var/www/doritaminot
+            else
+              git -C /var/www/doritaminot pull origin main
+            fi
+
+            # ── 5. Nginx konfiguratsiya ────────────────────────────────────
+            cp /var/www/doritaminot/nginx/doritaminot.conf /etc/nginx/conf.d/doritaminot.conf
+
+            # ── 6. Docker containers ───────────────────────────────────────
             cd /var/www/doritaminot
-            
-            git pull origin main
-            
-            docker compose down
+            docker compose down || true
             docker compose up --build -d
-            
+            sleep 8
+
             docker compose exec -T backend python manage.py migrate --noinput
             docker compose exec -T backend python manage.py collectstatic --noinput
-            
-            sudo systemctl restart nginx
+
+            # ── 7. Nginx ishga tushirish ───────────────────────────────────
+            nginx -t
+            systemctl is-active --quiet nginx && systemctl reload nginx || systemctl start nginx
