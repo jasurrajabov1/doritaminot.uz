@@ -47,8 +47,11 @@ jobs:
               mkdir -p /var/www
               git clone https://github.com/jasurrajabov1/doritaminot.uz /var/www/doritaminot
             else
+              DB_PATH="/var/www/doritaminot/backend/db.sqlite3"
+              [ -f "$DB_PATH" ] && cp "$DB_PATH" /tmp/db_prod_backup.sqlite3
               git -C /var/www/doritaminot fetch origin main
               git -C /var/www/doritaminot reset --hard origin/main
+              [ -f /tmp/db_prod_backup.sqlite3 ] && cp /tmp/db_prod_backup.sqlite3 "$DB_PATH"
             fi
 
             # ── 5. Docker containers ───────────────────────────────────────
