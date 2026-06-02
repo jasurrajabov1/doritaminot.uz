@@ -10,6 +10,7 @@ venv/
 # Django generated
 backend/staticfiles/
 backend/venv/
+backend/db.sqlite3
 
 # Database backups
 backend/manual_backups/
