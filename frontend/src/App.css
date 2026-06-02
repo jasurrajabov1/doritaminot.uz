@@ -1937,7 +1937,7 @@ body.route-need-rows table.needrows-checkbox-first-col-table td:first-child [cla
 
 /* PROFESSIONAL_RESPONSIVE_SHELL_AND_I18N_V1 */
 :root {
-  --app-sidebar-width: 284px;
+  --app-sidebar-width: 260px;
   --app-bg: #eef3f8;
   --app-panel: #ffffff;
   --app-border: #dbe5ef;
@@ -2417,11 +2417,16 @@ body.route-need-rows.page-mode-table .table-wrapper {
   width: 100%;
   height: 32px;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.2);
-  background: #ffffff;
-  color: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
   cursor: pointer;
   margin-bottom: 10px;
+}
+
+.sidebar-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
 }
 
 .sidebar-floating-open-btn {
