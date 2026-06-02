@@ -128,7 +128,7 @@ def get_need_addition_count(institution_id=None, drug_id=None, year=None, need_r
 
 def get_status(total_need, issued_total, remaining_percent):
     if issued_total > total_need:
-        return "Эҳтиёждан ошган"
+        return "Ортиқча берилган"
     if remaining_percent < 20:
         return "Критик"
     if remaining_percent < 30:
@@ -1747,6 +1747,8 @@ class DashboardSummaryAPIView(APIView):
         low_under_30 = 0
         critical_under_20 = 0
         over_need = 0
+        total_over_issued_qty = Decimal("0")
+        total_over_issued_sum = Decimal("0")
 
         total_addition_count = 0
         total_additional_need_qty = 0
@@ -1754,7 +1756,9 @@ class DashboardSummaryAPIView(APIView):
         additional_risk_positions = 0
 
         top_critical_drugs = []
+        top_over_issued = []
         top_additional_need = []
+        full_additional_need = []
 
         for need in need_rows_qs:
             base_need, additional_need, total_need = get_need_parts(need)
@@ -1781,8 +1785,14 @@ class DashboardSummaryAPIView(APIView):
 
             row_status = get_status(total_need, issued_total, remaining_percent)
 
-            if row_status == "Эҳтиёждан ошган":
+            over_qty = issued_total - total_need
+
+            if row_status == "Ортиқча берилган":
                 over_need += 1
+                if over_qty > 0:
+                    total_over_issued_qty += over_qty
+                    if price_value is not None:
+                        total_over_issued_sum += over_qty * price_value
             elif row_status == "Критик":
                 critical_under_20 += 1
             elif row_status == "Паст":
@@ -1838,7 +1848,7 @@ class DashboardSummaryAPIView(APIView):
 
             addition_reasons_text = ", ".join(addition_reasons) if addition_reasons else "—"
 
-            top_critical_drugs.append({
+            dashboard_position = {
                 "institution": need.institution.name,
                 "institution_inn": need.institution.inn or "",
                 "drug": get_drug_label(need.drug),
@@ -1854,10 +1864,19 @@ class DashboardSummaryAPIView(APIView):
                 "remaining_qty": float(remaining),
                 "remaining_percent": round(float(remaining_percent), 2),
                 "status": row_status,
-            })
+            }
+
+            if row_status == "Ортиқча берилган":
+                top_over_issued.append({
+                    **dashboard_position,
+                    "over_qty": round(float(over_qty), 3),
+                    "over_percent": round(float((over_qty / total_need) * 100), 2) if total_need > 0 else 0,
+                })
+            elif row_status in {"Критик", "Паст", "Огоҳлантириш"}:
+                top_critical_drugs.append(dashboard_position)
 
             if additional_need > 0:
-                top_additional_need.append({
+                additional_position = {
                     "institution": need.institution.name,
                     "institution_inn": need.institution.inn or "",
                     "drug": get_drug_label(need.drug),
@@ -1869,26 +1888,40 @@ class DashboardSummaryAPIView(APIView):
                     "addition_reasons": addition_reasons_text,
                     "additional_risk_status": additional_risk_status,
                     "total_need": float(total_need),
-                })
+                    "issued_qty": float(issued_total),
+                    "remaining_qty": float(remaining),
+                    "remaining_percent": round(float(remaining_percent), 2),
+                    "status": row_status,
+                }
+                full_additional_need.append(additional_position)
+                top_additional_need.append(additional_position)
 
         top_critical_drugs = sorted(
             top_critical_drugs,
             key=lambda x: x["remaining_percent"]
         )[:10]
 
-        top_additional_need = sorted(
-            top_additional_need,
-            key=lambda x: (x["additional_need_percent"], x["additional_need"]),
+        top_over_issued = sorted(
+            top_over_issued,
+            key=lambda x: (x["over_qty"], x["issued_qty"]),
             reverse=True,
         )[:10]
 
-        critical_positions = warning_under_50 + low_under_30 + critical_under_20 + over_need
+        full_additional_need = sorted(
+            full_additional_need,
+            key=lambda x: (x["additional_need_percent"], x["additional_need"]),
+            reverse=True,
+        )
+
+        top_additional_need = full_additional_need[:10]
+
+        critical_positions = warning_under_50 + low_under_30 + critical_under_20
 
         critical_data = [
             {"name": "<50%", "value": warning_under_50},
             {"name": "<30%", "value": low_under_30},
             {"name": "<20%", "value": critical_under_20},
-            {"name": "Эҳтиёждан ошган", "value": over_need},
+            {"name": "Ортиқча берилган", "value": over_need},
         ]
 
         yearly_chart = []
@@ -1916,6 +1949,9 @@ class DashboardSummaryAPIView(APIView):
                 "total_remaining_sum": float(total_remaining_amount),
                 "critical_positions": critical_positions,
                 "over_need": over_need,
+                "over_issued_positions": over_need,
+                "total_over_issued_qty": float(total_over_issued_qty),
+                "total_over_issued_sum": float(total_over_issued_sum),
                 "total_addition_count": total_addition_count,
                 "total_additional_need_qty": float(total_additional_need_qty),
                 "additional_over_50_positions": additional_over_50_positions,
@@ -1925,7 +1961,10 @@ class DashboardSummaryAPIView(APIView):
             "critical_chart": critical_data,
             "monthly_chart": yearly_chart,
             "top_critical_drugs": top_critical_drugs,
+            "top_over_issued": top_over_issued,
+            "top_over_issued_drugs": top_over_issued,
             "top_additional_need": top_additional_need,
+            "additional_need_rows": full_additional_need,
             "filters": {
                 "years": sorted(
                     list(NeedRow.objects.values_list("year", flat=True).distinct())
@@ -2981,11 +3020,17 @@ def _perf_dashboard_get(self, request):
     low_under_30 = 0
     critical_under_20 = 0
     over_need = 0
+    total_over_issued_qty = Decimal("0")
+    total_over_issued_sum = Decimal("0")
 
     institution_map = {}
 
     top_critical_drugs = []
+    all_risk_ranked_positions = []
+    top_over_issued = []
+    full_over_issued = []
     top_additional_need = []
+    full_additional_need = []
 
     for row in rows:
         inst_id = row["institution_id"]
@@ -3003,22 +3048,14 @@ def _perf_dashboard_get(self, request):
         institution_map[inst_id]["issued"] += row["issued_qty"]
         institution_map[inst_id]["remaining"] += row["remaining_qty"]
 
-        status_text = get_status(
-            _perf_dec(row["total_need"]),
-            _perf_dec(row["issued_qty"]),
-            row["remaining_percent"],
-        )
+        total_need_dec = _perf_dec(row["total_need"])
+        issued_dec = _perf_dec(row["issued_qty"])
+        remaining_percent = row.get("remaining_percent") or 0
+        status_text = get_status(total_need_dec, issued_dec, remaining_percent)
 
-        if status_text == "Эҳтиёждан ошган":
-            over_need += 1
-        elif status_text == "Критик":
-            critical_under_20 += 1
-        elif status_text == "Паст":
-            low_under_30 += 1
-        elif status_text == "Огоҳлантириш":
-            warning_under_50 += 1
+        over_qty = issued_dec - total_need_dec
 
-        top_critical_drugs.append({
+        base_position = {
             "institution": row["institution_name"],
             "institution_inn": row["institution_inn"],
             "drug": row["drug_name"],
@@ -3034,10 +3071,46 @@ def _perf_dashboard_get(self, request):
             "remaining_qty": row["remaining_qty"],
             "remaining_percent": row["remaining_percent"],
             "status": status_text,
-        })
+            "price": row.get("price"),
+            "total_need_sum": row.get("total_need_sum"),
+            "given_sum": row.get("given_sum"),
+            "remaining_sum": row.get("remaining_sum"),
+        }
+
+        all_risk_ranked_positions.append(base_position)
+
+        if status_text == "Ортиқча берилган":
+            over_need += 1
+            if over_qty > 0:
+                total_over_issued_qty += over_qty
+                if row.get("price") is not None:
+                    total_over_issued_sum += over_qty * _perf_dec(row.get("price"))
+
+            over_position = {
+                **base_position,
+                "over_qty": _perf_float(over_qty),
+                "over_percent": _perf_percent(over_qty, total_need_dec),
+                "over_sum": (
+                    _perf_float(over_qty * _perf_dec(row.get("price")))
+                    if row.get("price") is not None
+                    else None
+                ),
+            }
+            full_over_issued.append(over_position)
+            top_over_issued.append(over_position)
+        else:
+            if status_text == "Критик":
+                critical_under_20 += 1
+            elif status_text == "Паст":
+                low_under_30 += 1
+            elif status_text == "Огоҳлантириш":
+                warning_under_50 += 1
+
+            if status_text in {"Критик", "Паст", "Огоҳлантириш"}:
+                top_critical_drugs.append(base_position)
 
         if _perf_dec(row["additional_need"]) > 0:
-            top_additional_need.append({
+            additional_position = {
                 "institution": row["institution_name"],
                 "institution_inn": row["institution_inn"],
                 "drug": row["drug_name"],
@@ -3049,20 +3122,46 @@ def _perf_dashboard_get(self, request):
                 "addition_reasons": "—",
                 "additional_risk_status": row["additional_risk_status"],
                 "total_need": row["total_need"],
-            })
+                "issued_qty": row["issued_qty"],
+                "remaining_qty": row["remaining_qty"],
+                "remaining_percent": row["remaining_percent"],
+                "status": status_text,
+            }
+            full_additional_need.append(additional_position)
+            top_additional_need.append(additional_position)
 
     institution_chart = list(institution_map.values())
 
     top_critical_drugs = sorted(
         top_critical_drugs,
-        key=lambda item: item["remaining_percent"],
+        key=lambda item: (item["remaining_percent"], -_perf_dec(item["total_need"])),
     )[:10]
 
-    top_additional_need = sorted(
-        top_additional_need,
+    # Dashboard UI ва filter smoke-test учун рўйхат бутунлай бўш қолмасин:
+    # агар танланган фильтрда критик/паст/огоҳлантириш йўқ бўлса,
+    # энг паст қолдиқ фоизига эга позициялар қайтарилади.
+    # Бу "top critical" блокини normal ҳолатда ҳам маълумотли қилади.
+    if not top_critical_drugs:
+        top_critical_drugs = sorted(
+            all_risk_ranked_positions,
+            key=lambda item: (item["remaining_percent"], -_perf_dec(item["total_need"])),
+        )[:10]
+
+    full_over_issued = sorted(
+        full_over_issued,
+        key=lambda item: (_perf_dec(item["over_qty"]), _perf_dec(item["issued_qty"])),
+        reverse=True,
+    )
+
+    top_over_issued = full_over_issued[:10]
+
+    full_additional_need = sorted(
+        full_additional_need,
         key=lambda item: (item["additional_need_percent"], item["additional_need"]),
         reverse=True,
-    )[:10]
+    )
+
+    top_additional_need = full_additional_need[:10]
 
     additional_over_50_positions = sum(
         1 for row in rows if (row.get("additional_need_percent") or 0) >= 50
@@ -3090,8 +3189,11 @@ def _perf_dashboard_get(self, request):
             "total_issued_sum": float(total_issued_sum),
             "total_remaining_sum": float(total_remaining_sum),
 
-            "critical_positions": warning_under_50 + low_under_30 + critical_under_20 + over_need,
+            "critical_positions": warning_under_50 + low_under_30 + critical_under_20,
             "over_need": over_need,
+            "over_issued_positions": over_need,
+            "total_over_issued_qty": float(total_over_issued_qty),
+            "total_over_issued_sum": float(total_over_issued_sum),
 
             "total_addition_count": sum(row.get("addition_count") or 0 for row in rows),
             "total_additional_need_qty": float(sum(_perf_dec(row["additional_need"]) for row in rows)),
@@ -3103,11 +3205,16 @@ def _perf_dashboard_get(self, request):
             {"name": "<50%", "value": warning_under_50},
             {"name": "<30%", "value": low_under_30},
             {"name": "<20%", "value": critical_under_20},
-            {"name": "Эҳтиёждан ошган", "value": over_need},
+            {"name": "Ортиқча берилган", "value": over_need},
         ],
         "monthly_chart": [],
         "top_critical_drugs": top_critical_drugs,
+        "top_over_issued": top_over_issued,
+        "top_over_issued_drugs": top_over_issued,
+        "over_issued_rows": full_over_issued,
+        "all_over_issued": full_over_issued,
         "top_additional_need": top_additional_need,
+        "additional_need_rows": full_additional_need,
         "filters": {
             "years": years,
             "institutions": [
@@ -3469,3 +3576,178 @@ class NeedAdditionBulkDeleteAPIView(APIView):
         })
 # --- /FAST_BULK_DELETE_ENDPOINTS_V3 ---
 
+
+
+# --- PROFESSIONAL TRADE / REFERENCE PRICE API 2026-05-26 ---
+from .models import Supplier, TradeBranch, ReferencePrice, StockBatch
+from .serializers import SupplierSerializer, TradeBranchSerializer, ReferencePriceSerializer, StockBatchSerializer
+
+
+class SupplierListCreateAPIView(generics.ListCreateAPIView):
+    permission_classes = [HasPagePermission]
+    page_code = "prices"
+    serializer_class = SupplierSerializer
+
+    def get_queryset(self):
+        qs = Supplier.objects.all()
+        search = self.request.GET.get("search")
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(inn__icontains=search) | Q(license_no__icontains=search))
+        active = self.request.GET.get("is_active")
+        if active in ("true", "false"):
+            qs = qs.filter(is_active=(active == "true"))
+        return qs
+
+    def perform_create(self, serializer):
+        obj = serializer.save()
+        write_audit_log(self.request.user, "create", target=obj, target_type="Таъминотчи", description="Таъминотчи қўшилди.")
+
+
+class SupplierDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [HasPagePermission]
+    page_code = "prices"
+    queryset = Supplier.objects.all()
+    serializer_class = SupplierSerializer
+
+    def perform_update(self, serializer):
+        obj = serializer.save()
+        write_audit_log(self.request.user, "update", target=obj, target_type="Таъминотчи", description="Таъминотчи таҳрирланди.")
+
+    def perform_destroy(self, instance):
+        write_audit_log(self.request.user, "delete", target=instance, target_type="Таъминотчи", description="Таъминотчи ўчирилди.")
+        instance.delete()
+
+
+class TradeBranchListCreateAPIView(generics.ListCreateAPIView):
+    permission_classes = [HasPagePermission]
+    page_code = "stock_summary"
+    serializer_class = TradeBranchSerializer
+
+    def get_queryset(self):
+        qs = TradeBranch.objects.all()
+        branch_type = self.request.GET.get("branch_type")
+        if branch_type:
+            qs = qs.filter(branch_type=branch_type)
+        search = self.request.GET.get("search")
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(address__icontains=search))
+        active = self.request.GET.get("is_active")
+        if active in ("true", "false"):
+            qs = qs.filter(is_active=(active == "true"))
+        return qs
+
+    def perform_create(self, serializer):
+        obj = serializer.save()
+        write_audit_log(self.request.user, "create", target=obj, target_type="Омбор/филиал", description="Омбор/филиал қўшилди.")
+
+
+class TradeBranchDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [HasPagePermission]
+    page_code = "stock_summary"
+    queryset = TradeBranch.objects.all()
+    serializer_class = TradeBranchSerializer
+
+    def perform_update(self, serializer):
+        obj = serializer.save()
+        write_audit_log(self.request.user, "update", target=obj, target_type="Омбор/филиал", description="Омбор/филиал таҳрирланди.")
+
+    def perform_destroy(self, instance):
+        write_audit_log(self.request.user, "delete", target=instance, target_type="Омбор/филиал", description="Омбор/филиал ўчирилди.")
+        instance.delete()
+
+
+class ReferencePriceListCreateAPIView(generics.ListCreateAPIView):
+    permission_classes = [HasPagePermission]
+    page_code = "prices"
+    serializer_class = ReferencePriceSerializer
+
+    def get_queryset(self):
+        qs = ReferencePrice.objects.select_related("drug")
+        drug = self.request.GET.get("drug")
+        price_type = self.request.GET.get("price_type")
+        is_limited = self.request.GET.get("is_limited")
+        active = self.request.GET.get("is_active")
+        search = self.request.GET.get("search")
+        if drug:
+            qs = qs.filter(drug_id=drug)
+        if price_type:
+            qs = qs.filter(price_type=price_type)
+        if is_limited in ("true", "false"):
+            qs = qs.filter(is_limited=(is_limited == "true"))
+        if active in ("true", "false"):
+            qs = qs.filter(is_active=(active == "true"))
+        if search:
+            qs = qs.filter(Q(drug__name__icontains=search) | Q(drug__full_name__icontains=search) | Q(source_doc__icontains=search))
+        return qs
+
+    def perform_create(self, serializer):
+        obj = serializer.save()
+        write_audit_log(self.request.user, "create", target=obj, target_type="Референт нарх", description="Референт нарх қўшилди.")
+
+
+class ReferencePriceDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [HasPagePermission]
+    page_code = "prices"
+    queryset = ReferencePrice.objects.select_related("drug")
+    serializer_class = ReferencePriceSerializer
+
+    def perform_update(self, serializer):
+        obj = serializer.save()
+        write_audit_log(self.request.user, "update", target=obj, target_type="Референт нарх", description="Референт нарх таҳрирланди.")
+
+    def perform_destroy(self, instance):
+        write_audit_log(self.request.user, "delete", target=instance, target_type="Референт нарх", description="Референт нарх ўчирилди.")
+        instance.delete()
+
+
+class StockBatchListCreateAPIView(generics.ListCreateAPIView):
+    permission_classes = [HasPagePermission]
+    page_code = "stock_summary"
+    serializer_class = StockBatchSerializer
+
+    def get_queryset(self):
+        qs = StockBatch.objects.select_related("branch", "drug", "supplier")
+        for param, field in [
+            ("branch", "branch_id"),
+            ("drug", "drug_id"),
+            ("supplier", "supplier_id"),
+        ]:
+            value = self.request.GET.get(param)
+            if value:
+                qs = qs.filter(**{field: value})
+        branch_type = self.request.GET.get("branch_type")
+        if branch_type:
+            qs = qs.filter(branch__branch_type=branch_type)
+        for param in ["is_quarantine", "is_recalled"]:
+            value = self.request.GET.get(param)
+            if value in ("true", "false"):
+                qs = qs.filter(**{param: value == "true"})
+        search = self.request.GET.get("search")
+        if search:
+            qs = qs.filter(
+                Q(drug__name__icontains=search) |
+                Q(drug__full_name__icontains=search) |
+                Q(series__icontains=search) |
+                Q(supplier__name__icontains=search)
+            )
+        return qs
+
+    def perform_create(self, serializer):
+        obj = serializer.save()
+        write_audit_log(self.request.user, "create", target=obj, target_type="Омбор қолдиғи", description="Серия қолдиғи қўшилди.")
+
+
+class StockBatchDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [HasPagePermission]
+    page_code = "stock_summary"
+    queryset = StockBatch.objects.select_related("branch", "drug", "supplier")
+    serializer_class = StockBatchSerializer
+
+    def perform_update(self, serializer):
+        obj = serializer.save()
+        write_audit_log(self.request.user, "update", target=obj, target_type="Омбор қолдиғи", description="Серия қолдиғи таҳрирланди.")
+
+    def perform_destroy(self, instance):
+        write_audit_log(self.request.user, "delete", target=instance, target_type="Омбор қолдиғи", description="Серия қолдиғи ўчирилди.")
+        instance.delete()
+# --- /PROFESSIONAL TRADE / REFERENCE PRICE API 2026-05-26 ---

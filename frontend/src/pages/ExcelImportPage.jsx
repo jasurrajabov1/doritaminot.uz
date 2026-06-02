@@ -1,5 +1,6 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import api from "../api/client";
+import * as XLSX from "xlsx";
 
 const IMPORT_TYPES = [
   ["need_matrix", "Дори + эҳтиёж матрицаси"],
@@ -35,10 +36,88 @@ function errorText(error) {
   return JSON.stringify(data, null, 2);
 }
 
+
+function exportCell(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (Array.isArray(value)) return value.map((item) => exportCell(item)).join("; ");
+  if (typeof value === "object") return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
+function exportNumber(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const normalized = String(value).replace(",", ".").trim();
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : exportCell(value);
+}
+
+function rowErrorMessage(row) {
+  return exportCell(row?.errors || row?.message || row?.detail || "");
+}
+
+function rowInstitutionName(row) {
+  const data = row?.data || {};
+  return exportCell(data.institution_name || data.name || data.institution || "");
+}
+
+function rowInstitutionInn(row) {
+  const data = row?.data || {};
+  return exportCell(data.institution_inn || data.inn || data.tin || "");
+}
+
+function rowDrugTitle(row) {
+  const data = row?.data || {};
+  return exportCell(data.drug_title || data.drug || data.drug_name || "");
+}
+
+function safeDatePart() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}_${pad(now.getMonth() + 1)}_${pad(now.getDate())}_${pad(now.getHours())}_${pad(now.getMinutes())}`;
+}
+
 function cellValue(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function getRowKey(row) {
+  if (row?.row_key) return String(row.row_key);
+
+  const data = row?.data || {};
+  return [
+    row?.sheet_name || "",
+    row?.row_number || "",
+    data.institution_inn || "",
+    data.institution_name || "",
+    data.drug_title || "",
+    data.control_group || "",
+  ]
+    .map((part) => String(part).trim().toLowerCase())
+    .join("|");
+}
+
+function isOverIssueRow(row) {
+  return row?.import_status === "over_issue" || row?.data?.import_status === "over_issue";
+}
+
+function rowStatusLabel(row) {
+  if (!row?.ok) return "Хато";
+  if (isOverIssueRow(row)) return "Ортиқча берилган";
+  return row?.status_label || "OK";
+}
+
+function rowStatusStyle(row) {
+  if (!row?.ok) {
+    return { background: "#fee2e2", color: "#991b1b" };
+  }
+
+  if (isOverIssueRow(row)) {
+    return { background: "#fef3c7", color: "#92400e" };
+  }
+
+  return { background: "#dcfce7", color: "#166534" };
 }
 
 export default function ExcelImportPage() {
@@ -50,11 +129,19 @@ export default function ExcelImportPage() {
   const [result, setResult] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
   const rows = useMemo(() => result?.rows || [], [result]);
+  const okRows = useMemo(() => rows.filter((row) => row.ok), [rows]);
   const errorRows = useMemo(() => result?.error_rows || rows.filter((row) => !row.ok), [result, rows]);
   const visibleRows = rows.slice(0, 400);
   const visibleErrorRows = errorRows.slice(0, 80);
+  const selectedRowKeySet = useMemo(() => new Set(selectedRowKeys), [selectedRowKeys]);
+  const selectedOkCount = useMemo(
+    () => okRows.filter((row) => selectedRowKeySet.has(getRowKey(row))).length,
+    [okRows, selectedRowKeySet]
+  );
+  const overIssueRows = useMemo(() => okRows.filter((row) => isOverIssueRow(row)), [okRows]);
 
   function updateMapping(key, value) {
     setMapping((prev) => ({ ...prev, [key]: value }));
@@ -64,12 +151,52 @@ export default function ExcelImportPage() {
     setInstitutionMapping((prev) => ({ ...prev, [key]: value }));
   }
 
+  function setRowsSelected(nextRows) {
+    setSelectedRowKeys(nextRows.filter((row) => row.ok).map((row) => getRowKey(row)));
+  }
+
+  function toggleRowSelection(row, checked) {
+    if (!row?.ok) return;
+
+    const key = getRowKey(row);
+    setSelectedRowKeys((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(key);
+      } else {
+        next.delete(key);
+      }
+      return Array.from(next);
+    });
+  }
+
+  function selectAllOkRows() {
+    setRowsSelected(okRows);
+  }
+
+  function selectOnlyOverIssueRows() {
+    setRowsSelected(overIssueRows);
+  }
+
+  function clearSelectedRows() {
+    setSelectedRowKeys([]);
+  }
+
   async function submit(commit) {
     setMessage("");
-    setResult(null);
+
+    if (!commit) {
+      setResult(null);
+      setSelectedRowKeys([]);
+    }
 
     if (!file) {
       setMessage("Аввал Excel файл танланг.");
+      return;
+    }
+
+    if (commit && importType === "need_matrix" && rows.length > 0 && selectedOkCount <= 0) {
+      setMessage("Базага сақлаш учун камида битта OK қаторни белгиланг.");
       return;
     }
 
@@ -84,6 +211,10 @@ export default function ExcelImportPage() {
       Object.entries(mapping).forEach(([key, value]) => {
         form.append(key, value || "");
       });
+
+      if (commit && rows.length > 0) {
+        form.append("selected_row_keys", JSON.stringify(selectedRowKeys));
+      }
     } else {
       endpoint = "/import/excel/";
       form.append("import_type", "institutions");
@@ -100,7 +231,16 @@ export default function ExcelImportPage() {
       });
 
       setResult(res.data);
-      setMessage(commit ? "Базага импорт қилиш текширилди." : "Excel текширилди.");
+
+      if (!commit && importType === "need_matrix") {
+        setRowsSelected(res.data?.rows || []);
+      }
+
+      if (commit) {
+        setSelectedRowKeys([]);
+      }
+
+      setMessage(commit ? "Базага импорт қилинди." : "Excel текширилди.");
     } catch (error) {
       const data = error?.response?.data;
       setResult(data || null);
@@ -108,6 +248,60 @@ export default function ExcelImportPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function downloadErrorRowsXlsx() {
+    if (!errorRows.length) {
+      setMessage("Юклаб олинадиган хатоли қатор йўқ.");
+      return;
+    }
+
+    const exportRows = errorRows.map((row, index) => ({
+      "№": index + 1,
+      "Import тури": importType === "need_matrix" ? "Дори + эҳтиёж матрицаси" : "Муассасалар",
+      "Варақ": exportCell(row.sheet_name || result?.selected_sheet || ""),
+      "Excel қатор": exportNumber(row.row_number),
+      "Ҳолат": row.ok ? "OK" : "Хато",
+      "Амал": exportCell(row.action),
+      "Муассаса": rowInstitutionName(row),
+      "ИНН": rowInstitutionInn(row),
+      "Дори": rowDrugTitle(row),
+      "Гуруҳ": exportCell(row.data?.control_group_label || row.data?.control_group || ""),
+      "Асосий эҳтиёж": exportNumber(row.data?.base_need),
+      "Қўшимча": exportNumber(row.data?.additional_need),
+      "Жами эҳтиёж": exportNumber(row.data?.total_need),
+      "Берилган": exportNumber(row.data?.issued_qty),
+      "Қолдиқ": exportNumber(row.data?.remaining_qty),
+      "Ортиқча": exportNumber(row.data?.over_issue_qty),
+      "Хато сабаби": rowErrorMessage(row),
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    worksheet["!cols"] = [
+      { wch: 6 },
+      { wch: 26 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 24 },
+      { wch: 46 },
+      { wch: 14 },
+      { wch: 42 },
+      { wch: 28 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 70 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Хатоли қаторлар");
+
+    const fileName = `excel_import_xatolar_${safeDatePart()}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
   }
 
   function renderNeedMatrixMapping() {
@@ -225,11 +419,17 @@ export default function ExcelImportPage() {
 
     return (
       <div className="form-card" style={{ marginTop: 16, borderColor: "#fecaca" }}>
-        <h3 style={{ color: "#b91c1c" }}>
-          Хатоли қаторлар: {errorRows.length} та
-        </h3>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+          <h3 style={{ color: "#b91c1c", margin: 0 }}>
+            Хатоли қаторлар: {errorRows.length} та
+          </h3>
 
-        <p style={{ color: "#475569", marginTop: -6 }}>
+          <button type="button" onClick={downloadErrorRowsXlsx}>
+            Хатоларни Excel'га юклаб олиш
+          </button>
+        </div>
+
+        <p style={{ color: "#475569", marginTop: 10 }}>
           Бу қаторлар базага сақланмайди. Қолган OK қаторларни импорт қилиш мумкин.
           Хатони тузатиш учун Excel қатори, муассаса номи, ИНН ва хато сабабини текширинг.
         </p>
@@ -254,9 +454,9 @@ export default function ExcelImportPage() {
                 <tr key={`error-${row.sheet_name}-${row.row_number}-${index}`}>
                   <td>{cellValue(row.sheet_name)}</td>
                   <td>{cellValue(row.row_number)}</td>
-                  <td>{cellValue(row.data?.institution_name)}</td>
-                  <td>{cellValue(row.data?.institution_inn)}</td>
-                  <td>{cellValue(row.data?.drug_title)}</td>
+                  <td>{cellValue(rowInstitutionName(row))}</td>
+                  <td>{cellValue(rowInstitutionInn(row))}</td>
+                  <td>{cellValue(rowDrugTitle(row))}</td>
                   <td>{cellValue(row.data?.base_need)}</td>
                   <td>{cellValue(row.data?.issued_qty)}</td>
                   <td style={{ whiteSpace: "normal", maxWidth: 520, color: "#b91c1c" }}>
@@ -298,6 +498,11 @@ export default function ExcelImportPage() {
         </div>
 
         <div className="stat-card">
+          <div>Ортиқча берилган</div>
+          <b>{result.over_issue_count ?? 0}</b>
+        </div>
+
+        <div className="stat-card">
           <div>Яратилди</div>
           <b>{result.created ?? 0}</b>
         </div>
@@ -330,11 +535,48 @@ export default function ExcelImportPage() {
     );
   }
 
+  function renderSelectionControls() {
+    if (!result || importType !== "need_matrix" || !rows.length) return null;
+
+    return (
+      <div className="form-card" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <b>Импорт учун танланган: {selectedOkCount} / {okRows.length} та</b>
+
+          <button type="button" onClick={selectAllOkRows} disabled={!okRows.length}>
+            Барча OK қаторларни белгилаш
+          </button>
+
+          <button type="button" onClick={selectOnlyOverIssueRows} disabled={!overIssueRows.length}>
+            Фақат ортиқча берилганларни белгилаш ({overIssueRows.length})
+          </button>
+
+          <button type="button" onClick={clearSelectedRows} disabled={!selectedOkCount}>
+            Танловни тозалаш
+          </button>
+        </div>
+
+        <p style={{ color: "#475569", marginBottom: 0 }}>
+          Ортиқча берилган қаторлар ҳам OK ҳисобланади ва танланса базага сақланади.
+          Кейин клиника қўшимча эҳтиёж олса, қолдиқ автомат қайта ҳисобланади.
+        </p>
+      </div>
+    );
+  }
+
   function renderNeedMatrixRows() {
     return (
       <table className="grid-table">
         <thead>
           <tr>
+            <th>
+              <input
+                type="checkbox"
+                checked={okRows.length > 0 && selectedOkCount === okRows.length}
+                disabled={!okRows.length}
+                onChange={(e) => (e.target.checked ? selectAllOkRows() : clearSelectedRows())}
+              />
+            </th>
             <th>Варақ</th>
             <th>Excel қатор</th>
             <th>Ҳолат</th>
@@ -345,38 +587,56 @@ export default function ExcelImportPage() {
             <th>Гуруҳ</th>
             <th>Асосий эҳтиёж</th>
             <th>Қўшимча</th>
+            <th>Жами эҳтиёж</th>
             <th>Берилган</th>
-            <th>Хато</th>
+            <th>Қолдиқ</th>
+            <th>Ортиқча</th>
+            <th>Изоҳ / хато</th>
           </tr>
         </thead>
 
         <tbody>
           {visibleRows.length ? (
-            visibleRows.map((row, index) => (
-              <tr key={`${row.sheet_name}-${row.row_number}-${index}`}>
-                <td>{cellValue(row.sheet_name)}</td>
-                <td>{cellValue(row.row_number)}</td>
-                <td>
-                  <span className={`status-badge ${row.ok ? "safe" : "danger"}`}>
-                    {row.ok ? "OK" : "Хато"}
-                  </span>
-                </td>
-                <td>{cellValue(row.action)}</td>
-                <td>{cellValue(row.data?.institution_name)}</td>
-                <td>{cellValue(row.data?.institution_inn)}</td>
-                <td>{cellValue(row.data?.drug_title)}</td>
-                <td>{cellValue(row.data?.control_group_label)}</td>
-                <td>{cellValue(row.data?.base_need)}</td>
-                <td>{cellValue(row.data?.additional_need)}</td>
-                <td>{cellValue(row.data?.issued_qty)}</td>
-                <td style={{ whiteSpace: "normal", maxWidth: 420 }}>
-                  {cellValue(row.errors || row.message)}
-                </td>
-              </tr>
-            ))
+            visibleRows.map((row, index) => {
+              const rowKey = getRowKey(row);
+
+              return (
+                <tr key={`${row.sheet_name}-${row.row_number}-${index}`}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      disabled={!row.ok}
+                      checked={selectedRowKeySet.has(rowKey)}
+                      onChange={(e) => toggleRowSelection(row, e.target.checked)}
+                    />
+                  </td>
+                  <td>{cellValue(row.sheet_name)}</td>
+                  <td>{cellValue(row.row_number)}</td>
+                  <td>
+                    <span className="status-badge" style={rowStatusStyle(row)}>
+                      {rowStatusLabel(row)}
+                    </span>
+                  </td>
+                  <td>{cellValue(row.action)}</td>
+                  <td>{cellValue(row.data?.institution_name)}</td>
+                  <td>{cellValue(row.data?.institution_inn)}</td>
+                  <td>{cellValue(row.data?.drug_title)}</td>
+                  <td>{cellValue(row.data?.control_group_label)}</td>
+                  <td>{cellValue(row.data?.base_need)}</td>
+                  <td>{cellValue(row.data?.additional_need)}</td>
+                  <td>{cellValue(row.data?.total_need)}</td>
+                  <td>{cellValue(row.data?.issued_qty)}</td>
+                  <td>{cellValue(row.data?.remaining_qty)}</td>
+                  <td>{cellValue(row.data?.over_issue_qty)}</td>
+                  <td style={{ whiteSpace: "normal", maxWidth: 420 }}>
+                    {cellValue(row.errors || row.message)}
+                  </td>
+                </tr>
+              );
+            })
           ) : (
             <tr>
-              <td colSpan="12">Маълумот йўқ.</td>
+              <td colSpan="16">Маълумот йўқ.</td>
             </tr>
           )}
         </tbody>
@@ -458,6 +718,7 @@ export default function ExcelImportPage() {
             onChange={(e) => {
               setImportType(e.target.value);
               setResult(null);
+              setSelectedRowKeys([]);
               setMessage("");
             }}
           >
@@ -474,6 +735,7 @@ export default function ExcelImportPage() {
             onChange={(e) => {
               setFile(e.target.files?.[0] || null);
               setResult(null);
+              setSelectedRowKeys([]);
               setMessage("");
             }}
           />
@@ -494,10 +756,15 @@ export default function ExcelImportPage() {
           <button
             type="button"
             className="primary"
-            disabled={loading || !file || (result && (result.ok_count ?? 0) <= 0)}
+            disabled={
+              loading ||
+              !file ||
+              (result && importType === "need_matrix" && selectedOkCount <= 0) ||
+              (result && importType !== "need_matrix" && (result.ok_count ?? 0) <= 0)
+            }
             onClick={() => submit(true)}
           >
-            Базага импорт қилиш
+            {result && importType === "need_matrix" ? "Танланганларни базага импорт қилиш" : "Базага импорт қилиш"}
           </button>
         </div>
       </div>
@@ -507,6 +774,7 @@ export default function ExcelImportPage() {
       {renderErrorRows()}
       {renderStats()}
       {renderDetectedBlocks()}
+      {renderSelectionControls()}
 
       {result ? (
         <div className="table-wrap">

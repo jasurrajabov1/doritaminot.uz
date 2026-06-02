@@ -63,7 +63,7 @@ const fmtPercent = (value) => {
 };
 
 const normalizeStatusLabel = (status) => {
-  if (status === "Эҳтиёждан ошган") return "Эҳтиёждан ошган";
+  if (status === "Ортиқча берилган" || status === "Эҳтиёждан ошган") return "Ортиқча берилган";
   if (status === "Критик") return "Критик";
   if (status === "Паст") return "Паст";
   if (status === "Огоҳлантириш") return "Огоҳлантириш";
@@ -77,8 +77,8 @@ const getStatusLabel = (x) => {
   const remainingQty = toNumber(x.remaining_qty);
   const percent = toNumber(x.remaining_percent);
 
+  if (remainingQty < 0 || givenQty > totalNeed) return "Ортиқча берилган";
   if (totalNeed <= 0) return "Номаълум";
-  if (remainingQty < 0 || givenQty > totalNeed) return "Эҳтиёждан ошган";
   if (percent < 20) return "Критик";
   if (percent < 30) return "Паст";
   if (percent < 50) return "Огоҳлантириш";
@@ -88,7 +88,7 @@ const getStatusLabel = (x) => {
 const getStatusStyle = (x) => {
   const status = getStatusLabel(x);
 
-  if (status === "Эҳтиёждан ошган") {
+  if (status === "Ортиқча берилган") {
     return { background: "#7f1d1d", color: "#ffffff" };
   }
   if (status === "Критик") {
@@ -110,7 +110,7 @@ const getStatusStyle = (x) => {
 const getRowStyle = (x) => {
   const status = getStatusLabel(x);
 
-  if (status === "Эҳтиёждан ошган") {
+  if (status === "Ортиқча берилган") {
     return { background: "#fef2f2" };
   }
 
@@ -418,6 +418,9 @@ const writeVisibleColumns = (keys) => {
 };
 
 export default function StockSummaryPage() {
+  const [stockSummaryMainTablePage, setStockSummaryMainTablePage] = useState(1);
+  const [stockSummaryMainTablePageSize, setStockSummaryMainTablePageSize] = useState(100);
+
   const canViewStockSummary = canViewPage("stock_summary");
   const canExportStockSummary = canDo("stock_summary", "export");
   const canPrintStockSummary = canDo("stock_summary", "print");
@@ -543,7 +546,7 @@ export default function StockSummaryPage() {
     return {
       totalCount: filteredItems.length,
       overNeedCount: filteredItems.filter(
-        (x) => getStatusLabel(x) === "Эҳтиёждан ошган"
+        (x) => getStatusLabel(x) === "Ортиқча берилган"
       ).length,
       criticalCount: filteredItems.filter(
         (x) => getStatusLabel(x) === "Критик"
@@ -566,8 +569,8 @@ export default function StockSummaryPage() {
     setFilterStatus("");
   };
 
-  const exportToExcel = () => {
-    const detailSheetData = filteredItems.map((x) => ({
+  const buildExportRows = (sourceItems) =>
+    sourceItems.map((x) => ({
       "Муассаса": x.institution_name,
       "ИНН": x.institution_inn || "",
       "Дори": x.drug_name,
@@ -587,15 +590,37 @@ export default function StockSummaryPage() {
       "Қолдиқ сумма": x.remaining_sum ?? "",
     }));
 
+  const exportOverIssuedToExcel = () => {
+    const sourceItems = filteredItems.filter(
+      (x) => getStatusLabel(x) === "Ортиқча берилган"
+    );
+
+    if (sourceItems.length === 0) {
+      setError("Ортиқча берилган қаторлар топилмади.");
+      return;
+    }
+
+    const detailSheetData = buildExportRows(sourceItems);
     const statsSheetData = [
-      { "Кўрсаткич": "Жами", "Қиймат": stats.totalCount },
-      { "Кўрсаткич": "Эҳтиёждан ошган", "Қиймат": stats.overNeedCount },
-      { "Кўрсаткич": "Критик", "Қиймат": stats.criticalCount },
-      { "Кўрсаткич": "Паст", "Қиймат": stats.lowCount },
-      { "Кўрсаткич": "Огоҳлантириш", "Қиймат": stats.warningCount },
-      { "Кўрсаткич": "Норма", "Қиймат": stats.normalCount },
+      { "Кўрсаткич": "Ортиқча берилган", "Қиймат": sourceItems.length },
+      {
+        "Кўрсаткич": "Жами ортиқча миқдор",
+        "Қиймат": sourceItems.reduce(
+          (sum, x) => sum + Math.max(toNumber(x.given_qty) - toNumber(x.total_need), 0),
+          0
+        ),
+      },
+      {
+        "Кўрсаткич": "Жами умумий эҳтиёж",
+        "Қиймат": sourceItems.reduce((sum, x) => sum + toNumber(x.total_need), 0),
+      },
+      {
+        "Кўрсаткич": "Жами берилган",
+        "Қиймат": sourceItems.reduce((sum, x) => sum + toNumber(x.given_qty), 0),
+      },
     ];
 
+    const workbook = XLSX.utils.book_new();
     const detailWs = XLSX.utils.json_to_sheet(detailSheetData);
     const statsWs = XLSX.utils.json_to_sheet(statsSheetData);
 
@@ -618,12 +643,74 @@ export default function StockSummaryPage() {
       { wch: 18 },
       { wch: 18 },
     ];
+    statsWs["!cols"] = [{ wch: 32 }, { wch: 20 }];
 
+    XLSX.utils.book_append_sheet(workbook, detailWs, "Orticha_berilganlar");
+    XLSX.utils.book_append_sheet(workbook, statsWs, "Jami");
+
+    const parts = ["Orticha_berilganlar"];
+    if (filterYear) parts.push(`year_${filterYear}`);
+    if (filterInstitution) parts.push(`inst_${filterInstitution}`);
+    if (filterInn) parts.push(`inn_${filterInn}`);
+    if (filterDrug) parts.push(`drug_${filterDrug}`);
+
+    XLSX.writeFile(workbook, `${parts.join("_")}.xlsx`);
+  };
+
+  const exportToExcel = () => {
+    const detailSheetData = buildExportRows(filteredItems);
+    const overIssuedSheetData = buildExportRows(
+      filteredItems.filter((x) => getStatusLabel(x) === "Ортиқча берилган")
+    );
+    const criticalSheetData = buildExportRows(
+      filteredItems.filter((x) =>
+        ["Критик", "Паст", "Огоҳлантириш"].includes(getStatusLabel(x))
+      )
+    );
+
+    const statsSheetData = [
+      { "Кўрсаткич": "Жами", "Қиймат": stats.totalCount },
+      { "Кўрсаткич": "Ортиқча берилган", "Қиймат": stats.overNeedCount },
+      { "Кўрсаткич": "Критик", "Қиймат": stats.criticalCount },
+      { "Кўрсаткич": "Паст", "Қиймат": stats.lowCount },
+      { "Кўрсаткич": "Огоҳлантириш", "Қиймат": stats.warningCount },
+      { "Кўрсаткич": "Норма", "Қиймат": stats.normalCount },
+    ];
+
+    const detailWs = XLSX.utils.json_to_sheet(detailSheetData);
+    const overIssuedWs = XLSX.utils.json_to_sheet(overIssuedSheetData);
+    const criticalOnlyWs = XLSX.utils.json_to_sheet(criticalSheetData);
+    const statsWs = XLSX.utils.json_to_sheet(statsSheetData);
+
+    detailWs["!cols"] = [
+      { wch: 35 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 10 },
+      { wch: 20 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 18 },
+    ];
+
+    overIssuedWs["!cols"] = detailWs["!cols"];
+    criticalOnlyWs["!cols"] = detailWs["!cols"];
     statsWs["!cols"] = [{ wch: 28 }, { wch: 20 }];
 
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(workbook, detailWs, "StockSummary");
+    XLSX.utils.book_append_sheet(workbook, overIssuedWs, "Orticha_berilganlar");
+    XLSX.utils.book_append_sheet(workbook, criticalOnlyWs, "Kritiklar");
     XLSX.utils.book_append_sheet(workbook, statsWs, "Jami");
 
     const parts = ["StockSummary"];
@@ -741,6 +828,72 @@ export default function StockSummaryPage() {
 
   const visibleKeySet = new Set(visibleColumnKeys);
 
+  // --- stockSummaryMain_TABLE_PAGINATION_V1 ---
+  const stockSummaryMainPageSizeNumber = Number(stockSummaryMainTablePageSize) || 100;
+  const stockSummaryMainRows = Array.isArray(filteredItems) ? filteredItems : [];
+  const stockSummaryMainTotalPages = Math.max(1, Math.ceil(stockSummaryMainRows.length / stockSummaryMainPageSizeNumber));
+  const stockSummaryMainSafePage = Math.min(stockSummaryMainTablePage, stockSummaryMainTotalPages);
+  const stockSummaryMainStartIndex = (stockSummaryMainSafePage - 1) * stockSummaryMainPageSizeNumber;
+  const stockSummaryMainEndIndex = Math.min(stockSummaryMainRows.length, stockSummaryMainStartIndex + stockSummaryMainPageSizeNumber);
+  const stockSummaryMainPagedRows = stockSummaryMainRows.slice(stockSummaryMainStartIndex, stockSummaryMainEndIndex);
+  const renderStockSummaryMainPager = () => (
+    <div className="table-pagination-bar">
+      <div className="table-pagination-info">
+        <strong>Омбор қолдиғи</strong>
+        <span>
+          {stockSummaryMainRows.length
+            ? ` ${stockSummaryMainStartIndex + 1}-${stockSummaryMainEndIndex} / ${stockSummaryMainRows.length}`
+            : " 0 / 0"}
+        </span>
+      </div>
+      <div className="table-pagination-actions">
+        <span>Қатор:</span>
+        <select
+          className="table-page-size-select"
+          value={stockSummaryMainTablePageSize}
+          onChange={(event) => {
+            setStockSummaryMainTablePageSize(Number(event.target.value));
+            setStockSummaryMainTablePage(1);
+          }}
+        >
+          {[50, 100, 250, 500, 1000].map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={() => setStockSummaryMainTablePage(1)} disabled={stockSummaryMainSafePage <= 1}>
+          Биринчи
+        </button>
+        <button
+          type="button"
+          onClick={() => setStockSummaryMainTablePage(Math.max(1, stockSummaryMainSafePage - 1))}
+          disabled={stockSummaryMainSafePage <= 1}
+        >
+          Олдинги
+        </button>
+        <span className="table-pagination-page">
+          {stockSummaryMainSafePage} / {stockSummaryMainTotalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => setStockSummaryMainTablePage(Math.min(stockSummaryMainTotalPages, stockSummaryMainSafePage + 1))}
+          disabled={stockSummaryMainSafePage >= stockSummaryMainTotalPages}
+        >
+          Кейинги
+        </button>
+        <button
+          type="button"
+          onClick={() => setStockSummaryMainTablePage(stockSummaryMainTotalPages)}
+          disabled={stockSummaryMainSafePage >= stockSummaryMainTotalPages}
+        >
+          Охирги
+        </button>
+      </div>
+    </div>
+  );
+
+
   return (
     <div className="page-container">
       <style>{printStyles}</style>
@@ -765,7 +918,7 @@ export default function StockSummaryPage() {
             <div>{stats.totalCount}</div>
           </div>
           <div className="stat-card">
-            <div>Эҳтиёждан ошган</div>
+            <div>Ортиқча берилган</div>
             <div>{stats.overNeedCount}</div>
           </div>
           <div className="stat-card">
@@ -841,7 +994,7 @@ export default function StockSummaryPage() {
             onChange={(e) => setFilterStatus(e.target.value)}
           >
             <option value="">Барча статуслар</option>
-            <option value="Эҳтиёждан ошган">Эҳтиёждан ошган</option>
+            <option value="Ортиқча берилган">Ортиқча берилган</option>
             <option value="Критик">Критик</option>
             <option value="Паст">Паст</option>
             <option value="Огоҳлантириш">Огоҳлантириш</option>
@@ -859,6 +1012,16 @@ export default function StockSummaryPage() {
           {canExportStockSummary ? (
             <button type="button" onClick={exportToExcel}>
               Excel юклаб олиш
+            </button>
+          ) : null}
+
+          {canExportStockSummary ? (
+            <button
+              type="button"
+              onClick={exportOverIssuedToExcel}
+              disabled={stats.overNeedCount === 0}
+            >
+              Ортиқча берилган Excel ({stats.overNeedCount})
             </button>
           ) : null}
 
@@ -955,7 +1118,8 @@ export default function StockSummaryPage() {
         ) : null}
       </div>
 
-      <div className="table-wrap" style={{ overflowX: "auto" }}>
+              {renderStockSummaryMainPager()}
+<div className="table-wrap" style={{ overflowX: "auto" }}>
         <table
           className="grid-table"
           style={{
@@ -975,7 +1139,7 @@ export default function StockSummaryPage() {
           </thead>
           <tbody>
             {!loading && filteredItems.length > 0 ? (
-              filteredItems.map((x) => (
+              stockSummaryMainPagedRows.map((x) => (
                 <tr key={x.id} style={getRowStyle(x)}>
                   {visibleColumns.map((column) => (
                     <td key={column.key} style={getCellStyle(column)}>

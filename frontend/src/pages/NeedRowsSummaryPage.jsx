@@ -43,6 +43,51 @@ const formatPercent = (value) => {
   })}%`;
 };
 
+const buildAdditionalNeedExportRows = (items) =>
+  items.map((row, index) => ({
+    "№": index + 1,
+    "Йил": row.year,
+    "Муассаса": row.institution_name,
+    "ИНН": row.institution_inn || "",
+    "Дори": row.drug_name,
+    "Йил бошидаги эҳтиёж": toNumber(row.base_yearly_need),
+    "Қўшимча эҳтиёж": toNumber(row.additional_need),
+    "Қўшимча %": toNumber(row.additional_need_percent),
+    "Қўшимча сони": toNumber(row.addition_count),
+    "Умумий эҳтиёж": toNumber(row.total_yearly_need),
+    "Берилган миқдор": toNumber(row.total_given_dpm),
+    "Қолдиқ": toNumber(row.total_remaining),
+    "Амбулатор рецепт бўйича эҳтиёж": toNumber(row.total_amb_rec_need),
+    "ДПМ бўйича эҳтиёж": toNumber(row.total_dpm_need),
+    "Умумий чораклик эҳтиёж": toNumber(row.total_quarterly_need),
+    "Нарх": row.price_value !== null ? toNumber(row.price_value) : "Нарх йўқ",
+    "Умумий эҳтиёж сумма": row.yearly_sum !== null ? toNumber(row.yearly_sum) : "Нарх йўқ",
+    "Берилган сумма": row.given_sum !== null ? toNumber(row.given_sum) : "Нарх йўқ",
+    "Қолдиқ сумма": row.remaining_sum !== null ? toNumber(row.remaining_sum) : "Нарх йўқ",
+  }));
+
+const getAdditionalNeedExportCols = () => [
+  { wch: 6 },
+  { wch: 10 },
+  { wch: 35 },
+  { wch: 14 },
+  { wch: 28 },
+  { wch: 18 },
+  { wch: 18 },
+  { wch: 12 },
+  { wch: 14 },
+  { wch: 18 },
+  { wch: 18 },
+  { wch: 18 },
+  { wch: 24 },
+  { wch: 18 },
+  { wch: 22 },
+  { wch: 16 },
+  { wch: 22 },
+  { wch: 18 },
+  { wch: 18 },
+];
+
 const extractError = (e, fallbackText) => {
   const data = e?.response?.data;
 
@@ -300,6 +345,9 @@ const renderColumnChooser = ({
 };
 
 export default function NeedRowsSummaryPage() {
+  const [needRowsSummaryMainTablePage, setNeedRowsSummaryMainTablePage] = useState(1);
+  const [needRowsSummaryMainTablePageSize, setNeedRowsSummaryMainTablePageSize] = useState(100);
+
   const canViewNeedRowsSummary = canViewPage("need_rows_summary");
   const canExportNeedRowsSummary = canDo("need_rows_summary", "export");
   const canPrintNeedRowsSummary = canDo("need_rows_summary", "print");
@@ -648,6 +696,16 @@ export default function NeedRowsSummaryPage() {
       .sort((a, b) => a.drug_name.localeCompare(b.drug_name));
   }, [rowsWithMoney]);
 
+  const additionalNeedRows = useMemo(() => {
+    return rowsWithMoney
+      .filter((row) => toNumber(row.additional_need) > 0)
+      .sort((a, b) => {
+        const percentDiff = toNumber(b.additional_need_percent) - toNumber(a.additional_need_percent);
+        if (percentDiff !== 0) return percentDiff;
+        return toNumber(b.additional_need) - toNumber(a.additional_need);
+      });
+  }, [rowsWithMoney]);
+
   const clearFilters = () => {
     setSearchText("");
     setFilterInn("");
@@ -790,8 +848,18 @@ export default function NeedRowsSummaryPage() {
       "Қолдиқ сумма": row.remaining_sum !== null ? toNumber(row.remaining_sum) : "Нарх йўқ",
     }));
 
+    const additionalNeedSheetData = buildAdditionalNeedExportRows(additionalNeedRows);
+
     const metaSheetData = [
       { "Кўрсаткич": "Жами қаторлар", "Қиймат": summaryStats.rowsCount },
+      { "Кўрсаткич": "Эҳтиёж ошган қаторлар", "Қиймат": additionalNeedRows.length },
+      {
+        "Кўрсаткич": "Жами қўшимча эҳтиёж",
+        "Қиймат": additionalNeedRows.reduce(
+          (sum, row) => sum + toNumber(row.additional_need),
+          0
+        ),
+      },
       {
         "Кўрсаткич": "Жами умумий эҳтиёж сумма",
         "Қиймат":
@@ -818,6 +886,7 @@ export default function NeedRowsSummaryPage() {
     const detailsWs = XLSX.utils.json_to_sheet(detailsSheetData);
     const drugTotalsWs = XLSX.utils.json_to_sheet(drugTotalsSheetData);
     const metaWs = XLSX.utils.json_to_sheet(metaSheetData);
+    const additionalNeedWs = XLSX.utils.json_to_sheet(additionalNeedSheetData);
 
     detailsWs["!cols"] = [
       { wch: 10 },
@@ -863,13 +932,76 @@ export default function NeedRowsSummaryPage() {
       { wch: 20 },
     ];
 
+    additionalNeedWs["!cols"] = getAdditionalNeedExportCols();
+
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(workbook, detailsWs, "Svodka");
     XLSX.utils.book_append_sheet(workbook, drugTotalsWs, "Dori_jami");
+    XLSX.utils.book_append_sheet(workbook, additionalNeedWs, "Ehtiyoj_oshganlar");
     XLSX.utils.book_append_sheet(workbook, metaWs, "Jami");
 
     const parts = ["NeedRowsSummary"];
+    if (searchText.trim()) parts.push(`search_${searchText.trim()}`);
+    if (filterInn.trim()) parts.push(`inn_${filterInn.trim()}`);
+    if (selectedYear) parts.push(`year_${selectedYear}`);
+    if (selectedInstitution) parts.push(`inst_${selectedInstitution}`);
+    if (selectedDrug) parts.push(`drug_${selectedDrug}`);
+
+    XLSX.writeFile(workbook, `${parts.join("_")}.xlsx`);
+  };
+
+  const exportAdditionalNeedToExcel = () => {
+    const sheetData = buildAdditionalNeedExportRows(additionalNeedRows);
+
+    if (sheetData.length === 0) {
+      setError("Эҳтиёж ошган қаторлар топилмади.");
+      return;
+    }
+
+    const metaSheetData = [
+      { "Кўрсаткич": "Эҳтиёж ошган қаторлар", "Қиймат": additionalNeedRows.length },
+      {
+        "Кўрсаткич": "Жами қўшимча эҳтиёж",
+        "Қиймат": additionalNeedRows.reduce(
+          (sum, row) => sum + toNumber(row.additional_need),
+          0
+        ),
+      },
+      {
+        "Кўрсаткич": "Жами умумий эҳтиёж",
+        "Қиймат": additionalNeedRows.reduce(
+          (sum, row) => sum + toNumber(row.total_yearly_need),
+          0
+        ),
+      },
+      {
+        "Кўрсаткич": "Жами берилган",
+        "Қиймат": additionalNeedRows.reduce(
+          (sum, row) => sum + toNumber(row.total_given_dpm),
+          0
+        ),
+      },
+      {
+        "Кўрсаткич": "Жами қолдиқ",
+        "Қиймат": additionalNeedRows.reduce(
+          (sum, row) => sum + toNumber(row.total_remaining),
+          0
+        ),
+      },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    const sheetWs = XLSX.utils.json_to_sheet(sheetData);
+    const metaWs = XLSX.utils.json_to_sheet(metaSheetData);
+
+    sheetWs["!cols"] = getAdditionalNeedExportCols();
+    metaWs["!cols"] = [{ wch: 28 }, { wch: 20 }];
+
+    XLSX.utils.book_append_sheet(workbook, sheetWs, "Ehtiyoj_oshganlar");
+    XLSX.utils.book_append_sheet(workbook, metaWs, "Jami");
+
+    const parts = ["Ehtiyoj_oshganlar"];
     if (searchText.trim()) parts.push(`search_${searchText.trim()}`);
     if (filterInn.trim()) parts.push(`inn_${filterInn.trim()}`);
     if (selectedYear) parts.push(`year_${selectedYear}`);
@@ -983,6 +1115,72 @@ export default function NeedRowsSummaryPage() {
       );
     }
 
+  // --- needRowsSummaryMain_TABLE_PAGINATION_V1 ---
+  const needRowsSummaryMainPageSizeNumber = Number(needRowsSummaryMainTablePageSize) || 100;
+  const needRowsSummaryMainRows = Array.isArray(rowsWithMoney) ? rowsWithMoney : [];
+  const needRowsSummaryMainTotalPages = Math.max(1, Math.ceil(needRowsSummaryMainRows.length / needRowsSummaryMainPageSizeNumber));
+  const needRowsSummaryMainSafePage = Math.min(needRowsSummaryMainTablePage, needRowsSummaryMainTotalPages);
+  const needRowsSummaryMainStartIndex = (needRowsSummaryMainSafePage - 1) * needRowsSummaryMainPageSizeNumber;
+  const needRowsSummaryMainEndIndex = Math.min(needRowsSummaryMainRows.length, needRowsSummaryMainStartIndex + needRowsSummaryMainPageSizeNumber);
+  const needRowsSummaryMainPagedRows = needRowsSummaryMainRows.slice(needRowsSummaryMainStartIndex, needRowsSummaryMainEndIndex);
+  const renderNeedRowsSummaryMainPager = () => (
+    <div className="table-pagination-bar">
+      <div className="table-pagination-info">
+        <strong>Эҳтиёжлар сводкаси</strong>
+        <span>
+          {needRowsSummaryMainRows.length
+            ? ` ${needRowsSummaryMainStartIndex + 1}-${needRowsSummaryMainEndIndex} / ${needRowsSummaryMainRows.length}`
+            : " 0 / 0"}
+        </span>
+      </div>
+      <div className="table-pagination-actions">
+        <span>Қатор:</span>
+        <select
+          className="table-page-size-select"
+          value={needRowsSummaryMainTablePageSize}
+          onChange={(event) => {
+            setNeedRowsSummaryMainTablePageSize(Number(event.target.value));
+            setNeedRowsSummaryMainTablePage(1);
+          }}
+        >
+          {[50, 100, 250, 500, 1000].map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={() => setNeedRowsSummaryMainTablePage(1)} disabled={needRowsSummaryMainSafePage <= 1}>
+          Биринчи
+        </button>
+        <button
+          type="button"
+          onClick={() => setNeedRowsSummaryMainTablePage(Math.max(1, needRowsSummaryMainSafePage - 1))}
+          disabled={needRowsSummaryMainSafePage <= 1}
+        >
+          Олдинги
+        </button>
+        <span className="table-pagination-page">
+          {needRowsSummaryMainSafePage} / {needRowsSummaryMainTotalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => setNeedRowsSummaryMainTablePage(Math.min(needRowsSummaryMainTotalPages, needRowsSummaryMainSafePage + 1))}
+          disabled={needRowsSummaryMainSafePage >= needRowsSummaryMainTotalPages}
+        >
+          Кейинги
+        </button>
+        <button
+          type="button"
+          onClick={() => setNeedRowsSummaryMainTablePage(needRowsSummaryMainTotalPages)}
+          disabled={needRowsSummaryMainSafePage >= needRowsSummaryMainTotalPages}
+        >
+          Охирги
+        </button>
+      </div>
+    </div>
+  );
+
+
   return (
     <div className="page-container">
       <style>{printStyles}</style>
@@ -1085,6 +1283,16 @@ export default function NeedRowsSummaryPage() {
           </button>
         ) : null}
 
+        {canExportNeedRowsSummary ? (
+          <button
+            type="button"
+            onClick={exportAdditionalNeedToExcel}
+            disabled={additionalNeedRows.length === 0}
+          >
+            Эҳтиёж ошган Excel ({additionalNeedRows.length})
+          </button>
+        ) : null}
+
         {canPrintNeedRowsSummary ? (
           <button type="button" onClick={handlePrint}>
             Чоп этиш
@@ -1104,7 +1312,8 @@ export default function NeedRowsSummaryPage() {
         onToggle: () => setIsDetailColumnChooserOpen((value) => !value),
       })}
 
-      <div className="table-wrap" style={{ overflowX: "auto" }}>
+              {renderNeedRowsSummaryMainPager()}
+<div className="table-wrap" style={{ overflowX: "auto" }}>
         <h3>Муассаса ва дори кесимида сводка</h3>
         <table
           className="grid-table"
@@ -1125,7 +1334,7 @@ export default function NeedRowsSummaryPage() {
           </thead>
           <tbody>
             {!isLoading && rowsWithMoney.length > 0 ? (
-              rowsWithMoney.map((row, index) => (
+              needRowsSummaryMainPagedRows.map((row, index) => (
                 <tr key={`${row.year}-${row.institution_name}-${row.drug_name}-${index}`}>
                   {visibleDetailColumnDefs.map((column) => (
                     <td key={column.key} style={column.wrap ? wrapCell : nowrapCell}>

@@ -1,4 +1,40 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Django generated
+backend/staticfiles/
+backend/venv/
+
+# Database backups
+backend/manual_backups/
+frontend/manual_backups/
+
+# Temp / patch scripts
+backend/tmp_*.py
+frontend/tmp_*.py
+backend/patch_*.py
+frontend/tmp_*.py
+*.bak
+
+# Node
+node_modules/
+frontend/dist/
+
+# Env (production secrets should not be in git)
+# backend/.env  # intentionally tracked for deployment
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.sln

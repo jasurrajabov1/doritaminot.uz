@@ -582,3 +582,132 @@ class AuditLog(models.Model):
     def __str__(self):
         actor_name = self.actor.username if self.actor else "System"
         return f"{self.created_at:%Y-%m-%d %H:%M} | {actor_name} | {self.action} | {self.target_type}"
+
+
+# --- PROFESSIONAL TRADE / REFERENCE PRICE EXTENSIONS 2026-05-26 ---
+class Supplier(models.Model):
+    """Улгуржи таъминотчи ёки контрагент маълумотномаси."""
+
+    name = models.CharField(max_length=255, db_index=True)
+    inn = models.CharField(max_length=20, blank=True, default="", db_index=True)
+    license_no = models.CharField(max_length=120, blank=True, default="")
+    phone = models.CharField(max_length=80, blank=True, default="")
+    address = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["inn"],
+                condition=~models.Q(inn=""),
+                name="unique_supplier_inn_when_filled",
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class TradeBranch(models.Model):
+    """Омбор/дорихона/филиал кесимида қолдиқ юритиш учун нуқта."""
+
+    TYPE_WAREHOUSE = "warehouse"
+    TYPE_RETAIL = "retail"
+    TYPE_CHOICES = [
+        (TYPE_WAREHOUSE, "Улгуржи омбор"),
+        (TYPE_RETAIL, "Чакана дорихона"),
+    ]
+
+    name = models.CharField(max_length=255, db_index=True)
+    branch_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_WAREHOUSE, db_index=True)
+    address = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["branch_type", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["name", "branch_type"], name="uniq_trade_branch_name_type")
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_branch_type_display()})"
+
+
+class ReferencePrice(models.Model):
+    """Давлат/референт нархлар тарихи. Чеклов йўқ товарлар алоҳида кўринади."""
+
+    PRICE_TYPE_WHOLESALE_WITH_VAT = "wholesale_vat"
+    PRICE_TYPE_WHOLESALE_NO_VAT = "wholesale_no_vat"
+    PRICE_TYPE_RETAIL_WITH_VAT = "retail_vat"
+    PRICE_TYPE_RETAIL_NO_VAT = "retail_no_vat"
+    PRICE_TYPE_CHOICES = [
+        (PRICE_TYPE_WHOLESALE_WITH_VAT, "Улгуржи НДС билан"),
+        (PRICE_TYPE_WHOLESALE_NO_VAT, "Улгуржи НДСсиз"),
+        (PRICE_TYPE_RETAIL_WITH_VAT, "Чакана НДС билан"),
+        (PRICE_TYPE_RETAIL_NO_VAT, "Чакана НДСсиз"),
+    ]
+
+    drug = models.ForeignKey(Drug, on_delete=models.PROTECT, related_name="reference_prices")
+    price_type = models.CharField(max_length=30, choices=PRICE_TYPE_CHOICES, db_index=True)
+    price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=10, default="UZS")
+    source_doc = models.CharField(max_length=255, blank=True, default="")
+    start_date = models.DateField(db_index=True)
+    is_limited = models.BooleanField(default=True, help_text="False бўлса референт чеклов ўрнатилмаган.")
+    is_active = models.BooleanField(default=True)
+    note = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-start_date", "drug__name", "price_type"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["drug", "price_type", "start_date"],
+                name="uniq_reference_price_drug_type_date",
+            ),
+        ]
+
+    def __str__(self):
+        status = self.price if self.is_limited else "чеклов йўқ"
+        return f"{self.drug.display_name} | {self.get_price_type_display()} | {status}"
+
+
+class StockBatch(models.Model):
+    """Серия/муддат/манба кесимида омбор ва дорихона қолдиғи."""
+
+    branch = models.ForeignKey(TradeBranch, on_delete=models.PROTECT, related_name="stock_batches")
+    drug = models.ForeignKey(Drug, on_delete=models.PROTECT, related_name="stock_batches")
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="stock_batches", null=True, blank=True)
+    series = models.CharField(max_length=120, blank=True, default="", db_index=True)
+    expiry_date = models.DateField(null=True, blank=True, db_index=True)
+    quantity = models.DecimalField(max_digits=14, decimal_places=3, default=0)
+    purchase_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    wholesale_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    retail_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    is_quarantine = models.BooleanField(default=False, db_index=True)
+    is_recalled = models.BooleanField(default=False, db_index=True)
+    note = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["drug__name", "expiry_date", "series"]
+        indexes = [
+            models.Index(fields=["branch", "drug"]),
+            models.Index(fields=["drug", "series"]),
+            models.Index(fields=["expiry_date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.branch.name} | {self.drug.display_name} | {self.quantity}"
+
+    @property
+    def sale_blocked(self):
+        return bool(self.is_quarantine or self.is_recalled or (self.quantity or 0) <= 0)
+# --- /PROFESSIONAL TRADE / REFERENCE PRICE EXTENSIONS 2026-05-26 ---

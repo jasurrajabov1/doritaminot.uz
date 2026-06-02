@@ -1,0 +1,16 @@
+# /etc/systemd/system/pharm_demand_backend.service
+[Unit]
+Description=Pharm Demand Django Backend
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/pharm_demand_system/backend
+EnvironmentFile=/var/www/pharm_demand_system/backend/.env
+ExecStart=/var/www/pharm_demand_system/backend/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 180
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

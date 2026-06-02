@@ -23,7 +23,7 @@ function formatNumber(value) {
 }
 
 function normalizeStatus(status) {
-  if (status === "Эҳтиёждан ошган") return "Эҳтиёждан ошган";
+  if (status === "Ортиқча берилган" || status === "Эҳтиёждан ошган") return "Ортиқча берилган";
   if (status === "Критик") return "Критик";
   if (status === "Паст") return "Паст";
   if (status === "Огоҳлантириш") return "Огоҳлантириш";
@@ -33,11 +33,11 @@ function normalizeStatus(status) {
 function getStatusMeta(status) {
   const normalized = normalizeStatus(status);
 
-  if (normalized === "Эҳтиёждан ошган") {
+  if (normalized === "Ортиқча берилган") {
     return {
-      bg: "#7f1d1d",
-      color: "#ffffff",
-      text: "Эҳтиёждан ошган",
+      bg: "#fef3c7",
+      color: "#92400e",
+      text: "Ортиқча берилган",
     };
   }
 
@@ -172,6 +172,53 @@ function normalizeTopCritical(items) {
   }));
 }
 
+function normalizeTopOverIssued(items) {
+  if (!Array.isArray(items)) return [];
+
+  return items.map((row, index) => {
+    const yearlyNeed = toNumber(
+      firstDefined(row?.total_need, row?.total_yearly_need, row?.yearly_need)
+    );
+    const issuedQty = toNumber(row?.issued_qty);
+    const remainingQty = toNumber(row?.remaining_qty);
+    const overQty = toNumber(firstDefined(row?.over_qty, issuedQty - yearlyNeed));
+
+    return {
+      id: row?.id ?? index,
+      institution: firstDefined(row?.institution, ""),
+      institution_inn: firstDefined(row?.institution_inn, row?.inn, ""),
+      drug: firstDefined(row?.drug, ""),
+      year: firstDefined(row?.year, ""),
+      yearly_need: yearlyNeed,
+      issued_qty: issuedQty,
+      remaining_qty: remainingQty,
+      over_qty: overQty,
+      over_percent: toNumber(row?.over_percent),
+      over_sum:
+        row?.over_sum !== undefined && row?.over_sum !== null
+          ? toNumber(row.over_sum)
+          : null,
+      price:
+        row?.price !== undefined && row?.price !== null
+          ? toNumber(row.price)
+          : null,
+      total_need_sum:
+        row?.total_need_sum !== undefined && row?.total_need_sum !== null
+          ? toNumber(row.total_need_sum)
+          : null,
+      given_sum:
+        row?.given_sum !== undefined && row?.given_sum !== null
+          ? toNumber(row.given_sum)
+          : null,
+      remaining_sum:
+        row?.remaining_sum !== undefined && row?.remaining_sum !== null
+          ? toNumber(row.remaining_sum)
+          : null,
+      status: normalizeStatus(firstDefined(row?.status, "Ортиқча берилган")),
+    };
+  });
+}
+
 function normalizeTopAdditionalNeed(items) {
   if (!Array.isArray(items)) return [];
 
@@ -188,7 +235,93 @@ function normalizeTopAdditionalNeed(items) {
     addition_reasons: firstDefined(row?.addition_reasons, "—"),
     additional_risk_status: firstDefined(row?.additional_risk_status, "Норма"),
     total_need: toNumber(row?.total_need),
+    issued_qty: toNumber(row?.issued_qty),
+    remaining_qty: toNumber(row?.remaining_qty),
+    remaining_percent: toNumber(row?.remaining_percent),
+    status: normalizeStatus(row?.status),
   }));
+}
+
+function buildAdditionalNeedSheet(rows) {
+  return rows.map((row, index) => ({
+    "№": index + 1,
+    "Муассаса": row.institution,
+    "ИНН": row.institution_inn || "",
+    "Дори": row.drug,
+    "Йил": row.year,
+    "Йил бошидаги эҳтиёж": row.base_yearly_need,
+    "Қўшимча эҳтиёж": row.additional_need,
+    "Қўшимча %": row.additional_need_percent,
+    "Қўшимча сони": row.addition_count,
+    "Умумий эҳтиёж": row.total_need,
+    "Берилган": row.issued_qty,
+    "Қолдиқ": row.remaining_qty,
+    "Қолдиқ %": row.remaining_percent,
+    "Асосий сабаблар": row.addition_reasons || "—",
+    "Статус": row.additional_risk_status || row.status || "Норма",
+  }));
+}
+
+function getAdditionalNeedSheetCols() {
+  return [
+    { wch: 6 },
+    { wch: 35 },
+    { wch: 14 },
+    { wch: 28 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 12 },
+    { wch: 35 },
+    { wch: 18 },
+  ];
+}
+
+function buildOverIssuedSheet(rows) {
+  return rows.map((row, index) => ({
+    "№": index + 1,
+    "Муассаса": row.institution,
+    "ИНН": row.institution_inn || "",
+    "Дори": row.drug,
+    "Йил": row.year,
+    "Умумий эҳтиёж": row.yearly_need,
+    "Берилган": row.issued_qty,
+    "Қолдиқ": row.remaining_qty,
+    "Ортиқча": row.over_qty,
+    "Ортиқча %": row.over_percent,
+    "Нарх": row.price !== null ? row.price : "Нарх йўқ",
+    "Умумий эҳтиёж сумма": row.total_need_sum !== null ? row.total_need_sum : "Нарх йўқ",
+    "Берилган сумма": row.given_sum !== null ? row.given_sum : "Нарх йўқ",
+    "Қолдиқ сумма": row.remaining_sum !== null ? row.remaining_sum : "Нарх йўқ",
+    "Ортиқча сумма": row.over_sum !== null ? row.over_sum : "Нарх йўқ",
+    "Статус": row.status || "Ортиқча берилган",
+  }));
+}
+
+function getOverIssuedSheetCols() {
+  return [
+    { wch: 6 },
+    { wch: 35 },
+    { wch: 14 },
+    { wch: 28 },
+    { wch: 10 },
+    { wch: 16 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 22 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 18 },
+  ];
 }
 
 export default function DashboardPage() {
@@ -226,6 +359,9 @@ export default function DashboardPage() {
     total_remaining_sum: 0,
     critical_positions: 0,
     over_need: 0,
+    over_issued_positions: 0,
+    total_over_issued_qty: 0,
+    total_over_issued_sum: 0,
     total_addition_count: 0,
     total_additional_need_qty: 0,
     additional_over_50_positions: 0,
@@ -234,7 +370,12 @@ export default function DashboardPage() {
 
   const [institutionChart, setInstitutionChart] = useState([]);
   const [topCriticalDrugs, setTopCriticalDrugs] = useState([]);
+  const [topOverIssued, setTopOverIssued] = useState([]);
+  const [overIssuedRows, setOverIssuedRows] = useState([]);
   const [topAdditionalNeed, setTopAdditionalNeed] = useState([]);
+  const [additionalNeedRows, setAdditionalNeedRows] = useState([]);
+  const [showAllAdditionalNeed, setShowAllAdditionalNeed] = useState(false);
+  const [showAllOverIssued, setShowAllOverIssued] = useState(false);
 
   const compactHeaderCell = {
     padding: "6px 6px",
@@ -301,7 +442,10 @@ export default function DashboardPage() {
         total_remaining_sum: toNumber(serverCards.total_remaining_sum),
 
         critical_positions: toNumber(serverCards.critical_positions),
-        over_need: toNumber(serverCards.over_need),
+        over_need: toNumber(firstDefined(serverCards.over_need, serverCards.over_issued_positions)),
+        over_issued_positions: toNumber(firstDefined(serverCards.over_issued_positions, serverCards.over_need)),
+        total_over_issued_qty: toNumber(serverCards.total_over_issued_qty),
+        total_over_issued_sum: toNumber(serverCards.total_over_issued_sum),
 
         total_addition_count: toNumber(serverCards.total_addition_count),
         total_additional_need_qty: toNumber(serverCards.total_additional_need_qty),
@@ -319,8 +463,32 @@ export default function DashboardPage() {
         normalizeTopCritical(firstDefined(data?.top_critical_drugs, []))
       );
 
+      setTopOverIssued(
+        normalizeTopOverIssued(
+          firstDefined(data?.top_over_issued, data?.top_over_issued_drugs, [])
+        )
+      );
+
+      setOverIssuedRows(
+        normalizeTopOverIssued(
+          firstDefined(
+            data?.over_issued_rows,
+            data?.all_over_issued,
+            data?.top_over_issued,
+            data?.top_over_issued_drugs,
+            []
+          )
+        )
+      );
+
       setTopAdditionalNeed(
         normalizeTopAdditionalNeed(firstDefined(data?.top_additional_need, []))
+      );
+
+      setAdditionalNeedRows(
+        normalizeTopAdditionalNeed(
+          firstDefined(data?.additional_need_rows, data?.all_additional_need, data?.top_additional_need, [])
+        ).filter((row) => row.additional_need > 0)
       );
 
       const uniqueYears = Array.isArray(data?.filters?.years)
@@ -351,6 +519,14 @@ export default function DashboardPage() {
     setSelectedYear("");
     setSelectedInstitution("");
   };
+
+  const displayedAdditionalNeedRows = showAllAdditionalNeed
+    ? additionalNeedRows
+    : topAdditionalNeed;
+
+  const displayedOverIssuedRows = showAllOverIssued
+    ? overIssuedRows
+    : topOverIssued;
 
   const dashboardCards = useMemo(() => {
     const items = [
@@ -462,9 +638,16 @@ export default function DashboardPage() {
         visible: canViewPage("stock_summary"),
       },
       {
-        title: "Эҳтиёждан ошган",
-        value: formatNumber(cards.over_need),
-        hint: "Ошиқча берилган",
+        title: "Ортиқча берилган",
+        value: formatNumber(cards.over_issued_positions || cards.over_need),
+        hint: "Эҳтиёждан кўп берилган қаторлар",
+        path: "/stock-summary",
+        visible: canViewPage("stock_summary"),
+      },
+      {
+        title: "Ортиқча берилган миқдор",
+        value: formatNumber(cards.total_over_issued_qty),
+        hint: "Миқдор бўйича",
         path: "/stock-summary",
         visible: canViewPage("stock_summary"),
       },
@@ -489,6 +672,9 @@ export default function DashboardPage() {
       { "Кўрсаткич": "Жами қолдиқ сумма", "Қиймат": cards.total_remaining_sum },
 
       { "Кўрсаткич": "Критик позициялар", "Қиймат": cards.critical_positions },
+      { "Кўрсаткич": "Ортиқча берилган қаторлар", "Қиймат": cards.over_issued_positions || cards.over_need },
+      { "Кўрсаткич": "Ортиқча берилган миқдор", "Қиймат": cards.total_over_issued_qty },
+      { "Кўрсаткич": "Ортиқча берилган сумма", "Қиймат": cards.total_over_issued_sum },
       {
         "Кўрсаткич": "Қўшимча эҳтиёжлар сони",
         "Қиймат": cards.total_addition_count,
@@ -505,7 +691,6 @@ export default function DashboardPage() {
         "Кўрсаткич": "Қўшимча хавфли позициялар",
         "Қиймат": cards.additional_risk_positions,
       },
-      { "Кўрсаткич": "Эҳтиёждан ошган", "Қиймат": cards.over_need },
     ];
 
     const institutionSheet = institutionChart.map((row) => ({
@@ -529,6 +714,13 @@ export default function DashboardPage() {
       "Статус": row.status,
     }));
 
+    const overIssuedRowsForExport = overIssuedRows.length
+      ? overIssuedRows
+      : topOverIssued;
+
+    const overIssuedSheet = buildOverIssuedSheet(topOverIssued);
+    const allOverIssuedSheet = buildOverIssuedSheet(overIssuedRowsForExport);
+
     const additionalSheet = topAdditionalNeed.map((row, index) => ({
       "№": index + 1,
       "Муассаса": row.institution,
@@ -544,10 +736,15 @@ export default function DashboardPage() {
       "Статус": row.additional_risk_status,
     }));
 
+    const allAdditionalNeedSheet = buildAdditionalNeedSheet(additionalNeedRows);
+
     const cardsWs = XLSX.utils.json_to_sheet(cardsSheet);
     const institutionWs = XLSX.utils.json_to_sheet(institutionSheet);
     const criticalWs = XLSX.utils.json_to_sheet(criticalSheet);
+    const overIssuedWs = XLSX.utils.json_to_sheet(overIssuedSheet);
+    const allOverIssuedWs = XLSX.utils.json_to_sheet(allOverIssuedSheet);
     const additionalWs = XLSX.utils.json_to_sheet(additionalSheet);
+    const allAdditionalNeedWs = XLSX.utils.json_to_sheet(allAdditionalNeedSheet);
 
     cardsWs["!cols"] = [
       { wch: 28 },
@@ -575,6 +772,9 @@ export default function DashboardPage() {
       { wch: 16 },
     ];
 
+    overIssuedWs["!cols"] = getOverIssuedSheetCols();
+    allOverIssuedWs["!cols"] = getOverIssuedSheetCols();
+
     additionalWs["!cols"] = [
       { wch: 6 },
       { wch: 35 },
@@ -590,14 +790,119 @@ export default function DashboardPage() {
       { wch: 16 },
     ];
 
+    allAdditionalNeedWs["!cols"] = getAdditionalNeedSheetCols();
+
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(workbook, cardsWs, "Dashboard");
     XLSX.utils.book_append_sheet(workbook, institutionWs, "Muassasa_jami");
     XLSX.utils.book_append_sheet(workbook, criticalWs, "Top_critical");
+    XLSX.utils.book_append_sheet(workbook, overIssuedWs, "Top_over_issued");
+    XLSX.utils.book_append_sheet(workbook, allOverIssuedWs, "Orticha_berilganlar");
     XLSX.utils.book_append_sheet(workbook, additionalWs, "Top_additional_need");
+    XLSX.utils.book_append_sheet(workbook, allAdditionalNeedWs, "Ehtiyoj_oshganlar");
 
     const parts = ["DashboardSummary"];
+    if (searchText.trim()) parts.push(`search_${searchText.trim()}`);
+    if (filterInn.trim()) parts.push(`inn_${filterInn.trim()}`);
+    if (selectedYear) parts.push(`year_${selectedYear}`);
+    if (selectedInstitution) parts.push(`inst_${selectedInstitution}`);
+
+    XLSX.writeFile(workbook, `${parts.join("_")}.xlsx`);
+  };
+
+  const exportOverIssuedToExcel = () => {
+    const rowsForExport = overIssuedRows.length ? overIssuedRows : topOverIssued;
+    const sheetData = buildOverIssuedSheet(rowsForExport);
+
+    if (sheetData.length === 0) {
+      setError("Ортиқча берилган қаторлар топилмади.");
+      return;
+    }
+
+    const metaSheet = [
+      { "Кўрсаткич": "Ортиқча берилган қаторлар", "Қиймат": rowsForExport.length },
+      {
+        "Кўрсаткич": "Жами ортиқча миқдор",
+        "Қиймат": rowsForExport.reduce((sum, row) => sum + toNumber(row.over_qty), 0),
+      },
+      {
+        "Кўрсаткич": "Жами умумий эҳтиёж",
+        "Қиймат": rowsForExport.reduce((sum, row) => sum + toNumber(row.yearly_need), 0),
+      },
+      {
+        "Кўрсаткич": "Жами берилган",
+        "Қиймат": rowsForExport.reduce((sum, row) => sum + toNumber(row.issued_qty), 0),
+      },
+      {
+        "Кўрсаткич": "Жами қолдиқ",
+        "Қиймат": rowsForExport.reduce((sum, row) => sum + toNumber(row.remaining_qty), 0),
+      },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    const sheetWs = XLSX.utils.json_to_sheet(sheetData);
+    const metaWs = XLSX.utils.json_to_sheet(metaSheet);
+
+    sheetWs["!cols"] = getOverIssuedSheetCols();
+    metaWs["!cols"] = [{ wch: 32 }, { wch: 20 }];
+
+    XLSX.utils.book_append_sheet(workbook, sheetWs, "Orticha_berilganlar");
+    XLSX.utils.book_append_sheet(workbook, metaWs, "Jami");
+
+    const parts = ["Orticha_berilganlar"];
+    if (searchText.trim()) parts.push(`search_${searchText.trim()}`);
+    if (filterInn.trim()) parts.push(`inn_${filterInn.trim()}`);
+    if (selectedYear) parts.push(`year_${selectedYear}`);
+    if (selectedInstitution) parts.push(`inst_${selectedInstitution}`);
+
+    XLSX.writeFile(workbook, `${parts.join("_")}.xlsx`);
+  };
+
+  const exportAdditionalNeedToExcel = () => {
+    const sheetData = buildAdditionalNeedSheet(additionalNeedRows);
+
+    if (sheetData.length === 0) {
+      setError("Эҳтиёж ошган қаторлар топилмади.");
+      return;
+    }
+
+    const totalAdditionalNeed = additionalNeedRows.reduce(
+      (sum, row) => sum + toNumber(row.additional_need),
+      0
+    );
+    const totalNeed = additionalNeedRows.reduce(
+      (sum, row) => sum + toNumber(row.total_need),
+      0
+    );
+    const totalIssued = additionalNeedRows.reduce(
+      (sum, row) => sum + toNumber(row.issued_qty),
+      0
+    );
+    const totalRemaining = additionalNeedRows.reduce(
+      (sum, row) => sum + toNumber(row.remaining_qty),
+      0
+    );
+
+    const metaSheet = [
+      { "Кўрсаткич": "Эҳтиёж ошган қаторлар", "Қиймат": additionalNeedRows.length },
+      { "Кўрсаткич": "Жами қўшимча эҳтиёж", "Қиймат": totalAdditionalNeed },
+      { "Кўрсаткич": "Жами умумий эҳтиёж", "Қиймат": totalNeed },
+      { "Кўрсаткич": "Жами берилган", "Қиймат": totalIssued },
+      { "Кўрсаткич": "Жами қолдиқ", "Қиймат": totalRemaining },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    const sheetWs = XLSX.utils.json_to_sheet(sheetData);
+    const metaWs = XLSX.utils.json_to_sheet(metaSheet);
+
+    sheetWs["!cols"] = getAdditionalNeedSheetCols();
+    metaWs["!cols"] = [{ wch: 28 }, { wch: 20 }];
+
+    XLSX.utils.book_append_sheet(workbook, sheetWs, "Ehtiyoj_oshganlar");
+    XLSX.utils.book_append_sheet(workbook, metaWs, "Jami");
+
+    const parts = ["Ehtiyoj_oshganlar"];
     if (searchText.trim()) parts.push(`search_${searchText.trim()}`);
     if (filterInn.trim()) parts.push(`inn_${filterInn.trim()}`);
     if (selectedYear) parts.push(`year_${selectedYear}`);
@@ -695,6 +1000,18 @@ export default function DashboardPage() {
           {canExportDashboard ? (
             <button style={styles.secondaryButton} onClick={exportToExcel}>
               Excel юклаб олиш
+            </button>
+          ) : null}
+
+          {canExportDashboard ? (
+            <button style={styles.secondaryButton} onClick={exportAdditionalNeedToExcel}>
+              Эҳтиёж ошган Excel
+            </button>
+          ) : null}
+
+          {canExportDashboard ? (
+            <button style={styles.secondaryButton} onClick={exportOverIssuedToExcel}>
+              Ортиқча берилган Excel
             </button>
           ) : null}
 
@@ -833,20 +1150,41 @@ export default function DashboardPage() {
           <div style={styles.panel} className="dashboard-panel">
             <div style={styles.tableHeader}>
               <div style={styles.panelTitle}>
-                Қўшимча эҳтиёж бўйича энг хавфли 10 та позиция
+                {showAllAdditionalNeed
+                  ? `Эҳтиёж ошган тўлиқ рўйхат (${additionalNeedRows.length})`
+                  : "Қўшимча эҳтиёж бўйича энг хавфли 10 та позиция"}
               </div>
-              {canViewNeedRows ? (
+              <div style={styles.panelActions} className="dashboard-print-hide">
                 <button
                   style={styles.secondaryButton}
-                  className="dashboard-print-hide"
-                  onClick={() => navigate("/need-rows")}
+                  onClick={() => setShowAllAdditionalNeed((value) => !value)}
+                  disabled={additionalNeedRows.length === 0}
                 >
-                  Эҳтиёжларга ўтиш
+                  {showAllAdditionalNeed
+                    ? "Топ 10"
+                    : `Тўлиқ рўйхат (${additionalNeedRows.length})`}
                 </button>
-              ) : null}
+                {canExportDashboard ? (
+                  <button
+                    style={styles.secondaryButton}
+                    onClick={exportAdditionalNeedToExcel}
+                    disabled={additionalNeedRows.length === 0}
+                  >
+                    Excel
+                  </button>
+                ) : null}
+                {canViewNeedRows ? (
+                  <button
+                    style={styles.secondaryButton}
+                    onClick={() => navigate("/need-rows")}
+                  >
+                    Эҳтиёжларга ўтиш
+                  </button>
+                ) : null}
+              </div>
             </div>
 
-            {topAdditionalNeed.length === 0 ? (
+            {displayedAdditionalNeedRows.length === 0 ? (
               <div style={styles.emptyBox}>
                 Қўшимча эҳтиёж бўйича хавфли позициялар ҳозирча йўқ.
               </div>
@@ -872,7 +1210,7 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {topAdditionalNeed.map((row, index) => {
+                    {displayedAdditionalNeedRows.map((row, index) => {
                       const riskMeta = getAdditionalRiskMeta(
                         row.additional_risk_status
                       );
@@ -909,6 +1247,104 @@ export default function DashboardPage() {
                               }}
                             >
                               {riskMeta.text}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div style={styles.panel} className="dashboard-panel">
+            <div style={styles.tableHeader}>
+              <div style={styles.panelTitle}>
+                {showAllOverIssued
+                  ? `Ортиқча берилган тўлиқ рўйхат (${overIssuedRows.length})`
+                  : "Энг ортиқча берилган 10 та позиция"}
+              </div>
+              <div style={styles.panelActions} className="dashboard-print-hide">
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => setShowAllOverIssued((value) => !value)}
+                  disabled={overIssuedRows.length === 0}
+                >
+                  {showAllOverIssued
+                    ? "Топ 10"
+                    : `Тўлиқ рўйхат (${overIssuedRows.length})`}
+                </button>
+                {canExportDashboard ? (
+                  <button
+                    style={styles.secondaryButton}
+                    onClick={exportOverIssuedToExcel}
+                    disabled={overIssuedRows.length === 0}
+                  >
+                    Excel
+                  </button>
+                ) : null}
+                {canViewStockSummary ? (
+                  <button
+                    style={styles.secondaryButton}
+                    onClick={() => navigate("/stock-summary")}
+                  >
+                    Омборга ўтиш
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {displayedOverIssuedRows.length === 0 ? (
+              <div style={styles.emptyBox}>Ортиқча берилган позициялар ҳозирча йўқ.</div>
+            ) : (
+              <div style={styles.tableWrap} className="dashboard-table-wrap">
+                <table
+                  style={{ ...styles.table, minWidth: 0, tableLayout: "auto" }}
+                  className="dashboard-table"
+                >
+                  <thead>
+                    <tr>
+                      <th style={compactHeaderCell}>№</th>
+                      <th style={compactHeaderCell}>Муассаса</th>
+                      <th style={compactHeaderCell}>ИНН</th>
+                      <th style={compactHeaderCell}>Дори</th>
+                      <th style={compactHeaderCell}>Йил</th>
+                      <th style={compactHeaderCell}>Умумий эҳтиёж</th>
+                      <th style={compactHeaderCell}>Берилган</th>
+                      <th style={compactHeaderCell}>Ортиқча</th>
+                      <th style={compactHeaderCell}>Ортиқча %</th>
+                      <th style={compactHeaderCell}>Қолдиқ</th>
+                      <th style={compactHeaderCell}>Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedOverIssuedRows.map((row, index) => {
+                      const statusMeta = getStatusMeta(row.status);
+
+                      return (
+                        <tr
+                          key={`${row.institution}-${row.drug}-${row.year}-over-${index}`}
+                          style={styles.tr}
+                        >
+                          <td style={nowrapCell}>{index + 1}</td>
+                          <td style={wrapCell}>{row.institution}</td>
+                          <td style={nowrapCell}>{row.institution_inn || "—"}</td>
+                          <td style={wrapCell}>{row.drug}</td>
+                          <td style={nowrapCell}>{row.year}</td>
+                          <td style={nowrapCell}>{formatNumber(row.yearly_need)}</td>
+                          <td style={nowrapCell}>{formatNumber(row.issued_qty)}</td>
+                          <td style={nowrapCell}>{formatNumber(row.over_qty)}</td>
+                          <td style={nowrapCell}>{formatNumber(row.over_percent)}%</td>
+                          <td style={nowrapCell}>{formatNumber(row.remaining_qty)}</td>
+                          <td style={nowrapCell}>
+                            <span
+                              style={{
+                                ...styles.badge,
+                                backgroundColor: statusMeta.bg,
+                                color: statusMeta.color,
+                              }}
+                            >
+                              {statusMeta.text}
                             </span>
                           </td>
                         </tr>
@@ -1155,6 +1591,12 @@ const styles = {
     gap: "12px",
     flexWrap: "wrap",
     marginBottom: "10px",
+  },
+  panelActions: {
+    display: "flex",
+    gap: "6px",
+    flexWrap: "wrap",
+    alignItems: "center",
   },
   tableWrap: {
     overflowX: "auto",

@@ -325,22 +325,22 @@ export default function NeedRowsPage() {
   const [filterInn, setFilterInn] = useState("");
   const [filterDrug, setFilterDrug] = useState("");
   const [searchText, setSearchText] = useState("");
-  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [showColumnSettings, setShowColumnSettings] = usePersistedBoolean(
+    "needRows.showColumnSettings.v1",
+    false
+  );
   const [visibleNeedRowColumnKeys, setVisibleNeedRowColumnKeys] = useState(
     getInitialVisibleNeedRowColumns
   );
-  const [showHistoryColumnSettings, setShowHistoryColumnSettings] = useState(false);
+  const [showHistoryColumnSettings, setShowHistoryColumnSettings] = usePersistedBoolean(
+    "needRows.showHistoryColumnSettings.v1",
+    false
+  );
   const [visibleHistoryColumnKeys, setVisibleHistoryColumnKeys] = useState(
     getInitialVisibleHistoryColumns
   );
   const [selectedNeedRowIds, setSelectedNeedRowIds] = useState([]);
 
-
-  useEffect(() => {
-    if (showColumnToolsPanel && typeof setShowColumnSettings === "function") {
-      setShowColumnSettings(true);
-    }
-  }, [showColumnToolsPanel]);
 
   const isEditMode = editingId !== null;
   const isEditingAddition = editingAdditionId !== null;
@@ -1056,7 +1056,7 @@ export default function NeedRowsPage() {
     const ids = (selectedNeedRowIds || []).map((id) => Number(id)).filter(Boolean);
 
     if (!ids.length) {
-      setError("чириш учун қаторлар танланмаган.");
+      setError("Ўчириш учун қаторлар танланмаган.");
       return;
     }
 
@@ -1171,12 +1171,12 @@ export default function NeedRowsPage() {
     const ids = (selectedHistoryAdditionIds || []).map((id) => Number(id)).filter(Boolean);
 
     if (!ids.length) {
-      setError("ўшимча эҳтиёжлар тарихидан ўчириш учун қатор танланмаган.");
+      setError("Қўшимча эҳтиёжлар тарихидан ўчириш учун қатор танланмаган.");
       return;
     }
 
     const ok = window.confirm(
-      `${ids.length} та танланган қўшимча эҳтиёж ёзувини ўчириш/бекор қилишни тасдиқлайсизми?\n\nаол қўшимча эҳтиёжлар бекор қилинади, бекор қилинганлари тарихдан ўчирилади.`
+      `${ids.length} та танланган қўшимча эҳтиёж ёзувини ўчириш/бекор қилишни тасдиқлайсизми?\n\nФаол қўшимча эҳтиёжлар бекор қилинади, бекор қилинганлари тарихдан ўчирилади.`
     );
 
     if (!ok) return;
@@ -1206,7 +1206,7 @@ export default function NeedRowsPage() {
       if (typeof load === "function") await load();
     } catch (e) {
       console.error(e);
-      setError(getErrorMessage(e, "ўшимча эҳтиёжлар тарихини оммавий ўчиришда хато бўлди."));
+      setError(getErrorMessage(e, "Қўшимча эҳтиёжлар тарихини оммавий ўчиришда хато бўлди."));
     }
   };
 
@@ -2113,11 +2113,15 @@ export default function NeedRowsPage() {
       ) : null}
 
       <div className="table-wrap needrows-main-table-wrap" style={{ overflowX: "auto" }}>
-        <table className="grid-table needrows-data-table" style={dynamicNeedRowsTableStyle}>
+        <table
+          className="grid-table needrows-data-table needrows-checkbox-first-col-table"
+          data-resizable-storage-key="needrows-main"
+          style={dynamicNeedRowsTableStyle}
+        >
           <thead>
             <tr>
               {canDeleteNeedRow ? (
-                <th style={compactHeaderCell}>
+                <th className="needrows-checkbox-first-col" style={compactHeaderCell}>
                   <input
                     type="checkbox"
                     aria-label="Кўринаётган эҳтиёж қаторларини белгилаш"
@@ -2137,7 +2141,7 @@ export default function NeedRowsPage() {
               filteredRows.map((row) => (
                 <tr key={row.id}>
                   {canDeleteNeedRow ? (
-                    <td style={compactCell}>
+                    <td className="needrows-checkbox-first-col" style={compactCell}>
                       <input
                         type="checkbox"
                         checked={selectedNeedRowIdSet.has(String(row.id))}
@@ -2177,7 +2181,7 @@ export default function NeedRowsPage() {
                   Тарихдан танланган: {selectedHistoryAdditionIds.length} та
                 </span>
                 <button type="button" onClick={selectVisibleHistoryAdditions}>
-                  ўринаётган тарихни белгилаш ({getVisibleHistoryAdditionIds().length})
+                  Кўринаётган тарихни белгилаш ({getVisibleHistoryAdditionIds().length})
                 </button>
                 <button type="button" onClick={clearHistoryAdditionSelection} disabled={!selectedHistoryAdditionIds.length}>
                   Танловни тозалаш
@@ -2258,11 +2262,16 @@ export default function NeedRowsPage() {
           </div>
         ) : null}
 
-        <table className="grid-table" style={{ ...dynamicHistoryTableStyle, marginTop: "10px" }}>
+                
+<table
+          className="grid-table needrows-history-table needrows-checkbox-first-col-table"
+          data-resizable-storage-key="needrows-history"
+          style={{ ...dynamicHistoryTableStyle, marginTop: "10px" }}
+        >
           <thead>
             <tr>
               {canDeleteNeedRow ? (
-                <th style={compactHeaderCell}>
+                <th className="needrows-checkbox-first-col" style={compactHeaderCell}>
                   <input
                     type="checkbox"
                     checked={
@@ -2288,7 +2297,7 @@ export default function NeedRowsPage() {
               filteredAdditions.map((item) => (
                 <tr key={item.id}>
                   {canDeleteNeedRow ? (
-                    <td style={compactCell}>
+                    <td className="needrows-checkbox-first-col" style={compactCell}>
                       <input
                         type="checkbox"
                         checked={isHistoryAdditionSelected(item.id)}

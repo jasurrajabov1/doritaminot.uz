@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import LoginPage from "./pages/LoginPage";
 import AccessDeniedPage from "./pages/AccessDeniedPage";
@@ -14,13 +14,18 @@ import ProtectedRoute from "./routes/ProtectedRoute";
 import PublicOnlyRoute from "./routes/PublicOnlyRoute";
 import MustChangePasswordPage from "./pages/MustChangePasswordPage";
 import { canViewPage } from "./utils/permission";
+import { LanguageSwitcher, UiLanguageProvider, useUiLanguage } from "./i18n/UiLanguageProvider.jsx";
+import { translateText } from "./i18n/uiTranslations";
 
 import api, { clearAuthToken, fetchCurrentUser } from "./api/client";
 
 function AppLayout() {
   const [currentUser, setCurrentUser] = useState(getStoredCurrentUser());
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { language } = useUiLanguage();
   const isChangePasswordPage = window.location.pathname === "/change-password";
-
+  
   useEffect(() => {
     let isMounted = true;
 
@@ -44,6 +49,16 @@ function AppLayout() {
     };
   }, []);
 
+  useEffect(() => {
+    const closeSidebar = () => setSidebarOpen(false);
+    window.addEventListener("resize", closeSidebar);
+    window.addEventListener("popstate", closeSidebar);
+    return () => {
+      window.removeEventListener("resize", closeSidebar);
+      window.removeEventListener("popstate", closeSidebar);
+    };
+  }, []);
+
   const handleLogout = async () => {
     try {
       await api.post("/auth/logout/");
@@ -61,41 +76,13 @@ function AppLayout() {
 
   const defaultPath = getDefaultPath(currentUser?.allowed_pages || []);
 
-  return (
+  const visibleMenuItems = PAGE_REGISTRY.filter((item) => item.path !== "/drug-options")
+    .filter((item) => canView(item.code));
+
+  const closeMenu = () => setSidebarOpen(false);
+
+  const appRoutes = (
     <>
-      {!isChangePasswordPage && (
-        <div className="topbar">
-          {PAGE_REGISTRY.filter((item) => item.path !== "/drug-options").filter((item) => canView(item.code)).map((item) => (
-            <MenuLink key={`${item.code}-${item.path}`} to={item.path}>
-              {item.label}
-            </MenuLink>
-          ))}
-
-          {canView("access_management") && (
-            <MenuLink to="/drug-options">Дори справочниклари</MenuLink>
-          )}
-
-          {canView("access_management") && (
-            <MenuLink to="/excel-import">Excel import</MenuLink>
-          )}
-
-          <div className="topbar-user">
-            <span className="topbar-username">
-              {currentUser?.username ? currentUser.username : "pharm_demand_system"}
-            </span>
-
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="topbar-logout"
-            >
-              Чиқиш
-            </button>
-          </div>
-        </div>
-      )}
-
-      <>
       <GlobalRouteModeToolbar />
       <Routes>
         <Route index element={<Navigate to={defaultPath} replace />} />
@@ -154,13 +141,111 @@ function AppLayout() {
 
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
-    </> {/* GLOBAL_ROUTE_MODE_TOOLBAR_MOUNT_V1 */}
     </>
+  );
+
+  if (isChangePasswordPage) {
+    return <main className="auth-main">{appRoutes}</main>;
+  }
+
+  return (
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      {sidebarCollapsed && (
+        <button
+          type="button"
+          className="sidebar-floating-open-btn"
+          onClick={() => setSidebarCollapsed(false)}
+          aria-label="Менюни очиш"
+        >
+          ☰
+        </button>
+      )}
+      <button
+        type="button"
+        className="app-mobile-menu-button"
+        onClick={() => setSidebarOpen(true)}
+        aria-label="Меню"
+      >
+        ☰
+      </button>
+
+      <aside className={`app-sidebar ${sidebarOpen ? "is-open" : ""}`}>
+        <button
+          className="sidebar-toggle-btn"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        >
+          {sidebarCollapsed ? "☰" : "←"}
+        </button>
+        <div className="app-brand">
+          <div className="app-brand-mark">P</div>
+          <div>
+            <strong>Потребност</strong>
+            <span>Дори эҳтиёжи назорати</span>
+          </div>
+        </div>
+
+        <nav className="app-menu" aria-label="Меню">
+          {visibleMenuItems.map((item) => (
+            <MenuLink
+              key={`${item.code}-${item.path}`}
+              to={item.path}
+              onClick={closeMenu}
+            >
+              {translateText(item.label, language)}
+            </MenuLink>
+          ))}
+
+          {canView("access_management") && (
+            <MenuLink to="/drug-options" onClick={closeMenu}>
+              {translateText("Дори справочниклари", language)}
+            </MenuLink>
+          )}
+
+          {canView("access_management") && (
+            <MenuLink to="/excel-import" onClick={closeMenu}>
+              {translateText("Excel import", language)}
+            </MenuLink>
+          )}
+        </nav>
+
+        <div className="app-sidebar-footer">
+          <LanguageSwitcher />
+
+          <div className="app-user-card">
+            <span className="app-user-label">User</span>
+            <strong>{currentUser?.username ? currentUser.username : "pharm_demand_system"}</strong>
+          </div>
+
+          <button type="button" onClick={handleLogout} className="app-logout-button">
+            {translateText("Чиқиш", language)}
+          </button>
+        </div>
+      </aside>
+
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="app-sidebar-backdrop"
+          aria-label="Менюни ёпиш"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <main className="app-main">
+        <div className="app-mobile-topbar">
+          <div className="app-mobile-title">
+            <strong>Потребност</strong>
+            <span>{currentUser?.username || "pharm_demand_system"}</span>
+          </div>
+          <LanguageSwitcher />
+        </div>
+
+        {appRoutes}
+      </main>
+    </div>
   );
 }
 
-
-/* GLOBAL_ROUTE_MODE_TOOLBAR_V1 */
 function getGlobalRouteModePath() {
   return typeof window !== "undefined" ? window.location.pathname : "";
 }
@@ -170,6 +255,14 @@ function GlobalRouteModeToolbar() {
   const [mode, setMode] = useState("normal");
 
   const routeConfig = useMemo(() => {
+    if (path.startsWith("/need-rows")) {
+      return {
+        key: "needRows",
+        bodyClass: "route-need-rows",
+        title: "Эҳтиёж",
+      };
+    }
+
     if (path.startsWith("/monthly-issues")) {
       return {
         key: "monthlyIssues",
@@ -183,6 +276,38 @@ function GlobalRouteModeToolbar() {
         key: "stockSummary",
         bodyClass: "route-stock-summary",
         title: "Омбор қолдиғи",
+      };
+    }
+
+    if (path.startsWith("/institutions")) {
+      return {
+        key: "institutions",
+        bodyClass: "route-institutions",
+        title: "Муассасалар",
+      };
+    }
+
+    if (path.startsWith("/drugs")) {
+      return {
+        key: "drugs",
+        bodyClass: "route-drugs",
+        title: "Дорилар",
+      };
+    }
+
+    if (path.startsWith("/prices")) {
+      return {
+        key: "prices",
+        bodyClass: "route-prices",
+        title: "Нархлар",
+      };
+    }
+
+    if (path.startsWith("/need-rows-summary")) {
+      return {
+        key: "needRowsSummary",
+        bodyClass: "route-need-rows-summary",
+        title: "Эҳтиёжлар сводкаси",
       };
     }
 
@@ -237,7 +362,15 @@ function GlobalRouteModeToolbar() {
   }, [routeKey, storageKey]);
 
   useEffect(() => {
-    const routeClasses = ["route-monthly-issues", "route-stock-summary"];
+    const routeClasses = [
+      "route-need-rows",
+      "route-monthly-issues",
+      "route-stock-summary",
+      "route-institutions",
+      "route-drugs",
+      "route-prices",
+      "route-need-rows-summary",
+    ];
     const modeClasses = ["page-mode-compact", "page-mode-table"];
 
     document.body.classList.remove(...routeClasses, ...modeClasses);
@@ -263,7 +396,7 @@ function GlobalRouteModeToolbar() {
     try {
       localStorage.setItem(storageKey, nextMode);
     } catch {
-      // localStorage mavjud bo'lmasa ham UI ishlayveradi
+      // localStorage ishlamasa ham sahifa ishlayveradi
     }
   };
 
@@ -302,23 +435,24 @@ function GlobalRouteModeToolbar() {
     </div>
   );
 }
-/* /GLOBAL_ROUTE_MODE_TOOLBAR_V1 */
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route
-          path="/login"
-          element={
-            <PublicOnlyRoute>
-              <LoginPage />
-            </PublicOnlyRoute>
-          }
-        />
+    <UiLanguageProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route
+            path="/login"
+            element={
+              <PublicOnlyRoute>
+                <LoginPage />
+              </PublicOnlyRoute>
+            }
+          />
 
-        <Route path="/*" element={<AppLayout />} />
-      </Routes>
-    </BrowserRouter>
+          <Route path="/*" element={<AppLayout />} />
+        </Routes>
+      </BrowserRouter>
+    </UiLanguageProvider>
   );
 }

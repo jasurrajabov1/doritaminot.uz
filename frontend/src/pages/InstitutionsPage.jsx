@@ -655,7 +655,7 @@ export default function InstitutionsPage() {
               type="submit"
               disabled={loading || (isEditMode ? !canEdit : !canAdd)}
             >
-              {isEditMode ? "Сақлаш" : "ўшиш"}
+              {isEditMode ? "Сақлаш" : "Қўшиш"}
             </button>
 
             {isEditMode && (

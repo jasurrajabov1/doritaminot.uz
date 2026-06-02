@@ -63,7 +63,7 @@ function getStatusMeta(yearlyNeed, givenQty) {
 
   if (remaining < 0 || given > need) {
     return {
-      text: "Эҳтиёждан ошган",
+      text: "Ортиқча берилган",
       bg: "#7f1d1d",
       color: "#ffffff",
     };
@@ -101,6 +101,9 @@ function getStatusMeta(yearlyNeed, givenQty) {
 }
 
 export default function MonthlyIssuesPage() {
+  const [monthlyIssuesMainTablePage, setMonthlyIssuesMainTablePage] = useState(1);
+  const [monthlyIssuesMainTablePageSize, setMonthlyIssuesMainTablePageSize] = useState(100);
+
   const canViewMonthlyIssues = canViewPage("monthly_issues");
   const canAddMonthlyIssue = canDo("monthly_issues", "add");
   const canEditMonthlyIssue = canDo("monthly_issues", "edit");
@@ -741,6 +744,72 @@ export default function MonthlyIssuesPage() {
     return <div className="page-container">Сизда ушбу саҳифани кўриш ҳуқуқи йўқ.</div>;
   }
 
+  // --- monthlyIssuesMain_TABLE_PAGINATION_V1 ---
+  const monthlyIssuesMainPageSizeNumber = Number(monthlyIssuesMainTablePageSize) || 100;
+  const monthlyIssuesMainRows = Array.isArray(rowsForTable) ? rowsForTable : [];
+  const monthlyIssuesMainTotalPages = Math.max(1, Math.ceil(monthlyIssuesMainRows.length / monthlyIssuesMainPageSizeNumber));
+  const monthlyIssuesMainSafePage = Math.min(monthlyIssuesMainTablePage, monthlyIssuesMainTotalPages);
+  const monthlyIssuesMainStartIndex = (monthlyIssuesMainSafePage - 1) * monthlyIssuesMainPageSizeNumber;
+  const monthlyIssuesMainEndIndex = Math.min(monthlyIssuesMainRows.length, monthlyIssuesMainStartIndex + monthlyIssuesMainPageSizeNumber);
+  const monthlyIssuesMainPagedRows = monthlyIssuesMainRows.slice(monthlyIssuesMainStartIndex, monthlyIssuesMainEndIndex);
+  const renderMonthlyIssuesMainPager = () => (
+    <div className="table-pagination-bar">
+      <div className="table-pagination-info">
+        <strong>Берилган миқдор</strong>
+        <span>
+          {monthlyIssuesMainRows.length
+            ? ` ${monthlyIssuesMainStartIndex + 1}-${monthlyIssuesMainEndIndex} / ${monthlyIssuesMainRows.length}`
+            : " 0 / 0"}
+        </span>
+      </div>
+      <div className="table-pagination-actions">
+        <span>Қатор:</span>
+        <select
+          className="table-page-size-select"
+          value={monthlyIssuesMainTablePageSize}
+          onChange={(event) => {
+            setMonthlyIssuesMainTablePageSize(Number(event.target.value));
+            setMonthlyIssuesMainTablePage(1);
+          }}
+        >
+          {[50, 100, 250, 500, 1000].map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={() => setMonthlyIssuesMainTablePage(1)} disabled={monthlyIssuesMainSafePage <= 1}>
+          Биринчи
+        </button>
+        <button
+          type="button"
+          onClick={() => setMonthlyIssuesMainTablePage(Math.max(1, monthlyIssuesMainSafePage - 1))}
+          disabled={monthlyIssuesMainSafePage <= 1}
+        >
+          Олдинги
+        </button>
+        <span className="table-pagination-page">
+          {monthlyIssuesMainSafePage} / {monthlyIssuesMainTotalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => setMonthlyIssuesMainTablePage(Math.min(monthlyIssuesMainTotalPages, monthlyIssuesMainSafePage + 1))}
+          disabled={monthlyIssuesMainSafePage >= monthlyIssuesMainTotalPages}
+        >
+          Кейинги
+        </button>
+        <button
+          type="button"
+          onClick={() => setMonthlyIssuesMainTablePage(monthlyIssuesMainTotalPages)}
+          disabled={monthlyIssuesMainSafePage >= monthlyIssuesMainTotalPages}
+        >
+          Охирги
+        </button>
+      </div>
+    </div>
+  );
+
+
   return (
     <div className="page-container">
       <h2>Берилган миқдор</h2>
@@ -940,7 +1009,8 @@ export default function MonthlyIssuesPage() {
         </div>
       ) : null}
 
-      <div className="table-wrap">
+              {renderMonthlyIssuesMainPager()}
+<div className="table-wrap">
         <table
           className="grid-table"
           style={{
@@ -976,7 +1046,7 @@ export default function MonthlyIssuesPage() {
           </thead>
           <tbody>
             {!loading && rowsForTable.length > 0 ? (
-              rowsForTable.map((item) => (
+              monthlyIssuesMainPagedRows.map((item) => (
                 <tr key={item.id}>
                   {canDeleteMonthlyIssue ? (
                     <td style={nowrapCell}>

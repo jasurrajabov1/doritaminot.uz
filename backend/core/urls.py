@@ -49,6 +49,17 @@ urlpatterns = [
     path("need-row-additions/", views.NeedAdditionListCreateAPIView.as_view(), name="need-row-additions-list"),
     path("need-row-additions/<int:pk>/", views.NeedAdditionDetailAPIView.as_view(), name="need-row-additions-detail"),  
 
+
+    # Professional trade/reference/stock APIs
+    path("suppliers/", views.SupplierListCreateAPIView.as_view(), name="suppliers-list"),
+    path("suppliers/<int:pk>/", views.SupplierDetailAPIView.as_view(), name="suppliers-detail"),
+    path("trade-branches/", views.TradeBranchListCreateAPIView.as_view(), name="trade-branches-list"),
+    path("trade-branches/<int:pk>/", views.TradeBranchDetailAPIView.as_view(), name="trade-branches-detail"),
+    path("reference-prices/", views.ReferencePriceListCreateAPIView.as_view(), name="reference-prices-list"),
+    path("reference-prices/<int:pk>/", views.ReferencePriceDetailAPIView.as_view(), name="reference-prices-detail"),
+    path("stock-batches/", views.StockBatchListCreateAPIView.as_view(), name="stock-batches-list"),
+    path("stock-batches/<int:pk>/", views.StockBatchDetailAPIView.as_view(), name="stock-batches-detail"),
+
     path("stock-summary/", views.StockSummaryAPIView.as_view(), name="stock-summary"),
     path("dashboard-summary/", views.DashboardSummaryAPIView.as_view(), name="dashboard-summary"),
     path("need-rows-summary/", views.NeedRowSummaryAPIView.as_view(), name="need-rows-summary"),

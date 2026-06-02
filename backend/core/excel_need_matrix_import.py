@@ -1,4 +1,4 @@
-﻿# coding: utf-8
+# coding: utf-8
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -529,14 +529,57 @@ def _create_or_update_drug(data, update_existing, commit):
     return Drug.objects.create(**payload), action
 
 
+def _row_key(data):
+    """Stable key for selecting an Excel row+drug block from preview."""
+    parts = [
+        data.get("sheet_name"),
+        data.get("row_number"),
+        data.get("institution_inn"),
+        data.get("institution_name"),
+        data.get("drug_title"),
+        data.get("control_group"),
+    ]
+    return "|".join(_norm(part) for part in parts)
+
+
+def _row_amounts(data):
+    base_need = data.get("base_need") or Decimal("0.000")
+    additional_need = data.get("additional_need") or Decimal("0.000")
+    issued_qty = data.get("issued_qty") or Decimal("0.000")
+    total_need = (base_need + additional_need).quantize(Decimal("0.001"))
+    remaining_qty = (total_need - issued_qty).quantize(Decimal("0.001"))
+    over_issue_qty = (issued_qty - total_need).quantize(Decimal("0.001")) if issued_qty > total_need else Decimal("0.000")
+    return total_need, remaining_qty, over_issue_qty
+
+
 def _row_result(data, ok, action, message="", errors=""):
+    total_need, remaining_qty, over_issue_qty = _row_amounts(data)
+    import_status = data.get("import_status")
+
+    if not import_status:
+        if errors:
+            import_status = "error"
+        elif over_issue_qty > 0:
+            import_status = "over_issue"
+        else:
+            import_status = "ok"
+
+    status_label = {
+        "ok": "OK",
+        "over_issue": "Ортиқча берилган",
+        "error": "Хато",
+    }.get(import_status, import_status)
+
     return {
+        "row_key": _row_key(data),
         "sheet_name": data.get("sheet_name"),
         "row_number": data.get("row_number"),
         "ok": bool(ok),
         "action": action,
         "message": message,
         "errors": errors,
+        "import_status": import_status,
+        "status_label": status_label,
         "data": {
             "institution_name": data.get("institution_name"),
             "institution_inn": data.get("institution_inn"),
@@ -546,8 +589,13 @@ def _row_result(data, ok, action, message="", errors=""):
             "control_group_label": CONTROL_GROUP_LABELS.get(data.get("control_group"), data.get("control_group")),
             "base_need": float(data.get("base_need") or 0),
             "additional_need": float(data.get("additional_need") or 0),
+            "total_need": float(total_need),
+            "remaining_qty": float(remaining_qty),
+            "over_issue_qty": float(over_issue_qty),
             "total_excel": float(data.get("total_excel")) if data.get("total_excel") is not None else None,
             "issued_qty": float(data.get("issued_qty") or 0),
+            "import_status": import_status,
+            "status_label": status_label,
         },
     }
 
@@ -571,10 +619,16 @@ def _validate_row(data, update_existing=True):
                 f"Excel жами эҳтиёж билан ҳисобланган жамида фарқ бор. Excel: {data['total_excel']}, ҳисоб: {total_calc}"
             )
 
-    if data["issued_qty"] > total_calc:
-        errors.append(
-            f"Берилган миқдор жами эҳтиёждан ошиб кетган. Жами эҳтиёж: {total_calc}, берилган: {data['issued_qty']}"
+    over_issue_qty = (data["issued_qty"] - total_calc).quantize(Decimal("0.001")) if data["issued_qty"] > total_calc else Decimal("0.000")
+    is_over_issue = over_issue_qty > 0
+
+    if is_over_issue:
+        messages.append(
+            f"Ортиқча берилган: жами эҳтиёж {total_calc}, берилган {data['issued_qty']}, ортиқча {over_issue_qty}. Қатор базага сақланади."
         )
+        data["import_status"] = "over_issue"
+    else:
+        data["import_status"] = "ok"
 
     drug = _find_drug(data["drug_title"])
     drug_action = "drug_exists" if drug else "drug_create"
@@ -590,7 +644,11 @@ def _validate_row(data, update_existing=True):
 
     need_action = "need_update" if need_exists and update_existing else "need_create"
 
-    action = "; ".join([drug_action, need_action])
+    action_parts = [drug_action, need_action]
+    if data.get("import_status") == "over_issue":
+        action_parts.append("over_issue")
+
+    action = "; ".join(action_parts)
 
     if errors:
         return _row_result(data, False, action, " | ".join(messages), " | ".join(errors))
@@ -692,8 +750,13 @@ def _save_row(data, update_existing=True, user=None):
             )
             issue_action = "issued_create"
 
-    action = "; ".join([drug_action, need_action, addition_action, issue_action])
-    return _row_result(data, True, action, "", "")
+    action_parts = [drug_action, need_action, addition_action, issue_action]
+    if data.get("import_status") == "over_issue":
+        action_parts.append("over_issue")
+
+    action = "; ".join(action_parts)
+    message = "Ортиқча берилган миқдор сақланди." if data.get("import_status") == "over_issue" else ""
+    return _row_result(data, True, action, message, "")
 
 
 
@@ -725,6 +788,12 @@ def _summary(rows, meta, commit=False, detail=""):
         if "skip" in (row.get("action") or "")
     )
 
+    over_issue_count = sum(
+        1
+        for row in ok_rows
+        if row.get("import_status") == "over_issue" or (row.get("data") or {}).get("import_status") == "over_issue"
+    )
+
     if detail:
         resolved_detail = detail
     elif commit:
@@ -752,6 +821,7 @@ def _summary(rows, meta, commit=False, detail=""):
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "over_issue_count": over_issue_count,
 
         "meta": meta,
         "rows": rows,
@@ -760,10 +830,18 @@ def _summary(rows, meta, commit=False, detail=""):
     }
 
 
-def process_need_matrix_import(uploaded_file, mapping, commit=False, update_existing=True, user=None):
+def process_need_matrix_import(
+    uploaded_file,
+    mapping,
+    commit=False,
+    update_existing=True,
+    user=None,
+    selected_row_keys=None,
+):
     mapping = dict(mapping or {})
     year = _to_int(mapping.get("year"), date.today().year)
     mapping["year"] = year
+    selected_key_set = {str(key) for key in (selected_row_keys or []) if str(key).strip()}
 
     try:
         data_rows, meta = _read_rows(uploaded_file, mapping)
@@ -789,13 +867,19 @@ def process_need_matrix_import(uploaded_file, mapping, commit=False, update_exis
     for row in data_rows:
         row["year"] = year
 
+    if selected_key_set:
+        data_rows = [row for row in data_rows if _row_key(row) in selected_key_set]
+        meta = dict(meta or {})
+        meta["selected_row_keys_count"] = len(selected_key_set)
+        meta["selected_rows_count"] = len(data_rows)
+
     if not data_rows:
         return {
             "ok": False,
             "has_errors": True,
             "can_commit": False,
             "commit": False,
-            "detail": "Импорт қилинадиган қатор топилмади. Бошланиш қатори, варақ номи ёки Excel сарлавҳаларини текширинг.",
+            "detail": "Импорт қилинадиган қатор топилмади. Танланган қаторлар, бошланиш қатори, варақ номи ёки Excel сарлавҳаларини текширинг.",
             "total": 0,
             "ok_count": 0,
             "errors_count": 1,

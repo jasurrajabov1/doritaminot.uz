@@ -2255,3 +2255,82 @@ except Exception:
     pass
 # --- /TZ_STABLE_SERIALIZER_FIX_V2 ---
 
+
+
+# --- PROFESSIONAL TRADE / REFERENCE PRICE SERIALIZERS 2026-05-26 ---
+from .models import Supplier, TradeBranch, ReferencePrice, StockBatch
+
+
+class SupplierSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Supplier
+        fields = "__all__"
+
+    def validate_name(self, value):
+        value = str(value or "").strip()
+        if not value:
+            raise serializers.ValidationError("Таъминотчи номи мажбурий.")
+        return value
+
+
+class TradeBranchSerializer(serializers.ModelSerializer):
+    branch_type_label = serializers.CharField(source="get_branch_type_display", read_only=True)
+
+    class Meta:
+        model = TradeBranch
+        fields = "__all__"
+        read_only_fields = ["branch_type_label"]
+
+
+class ReferencePriceSerializer(serializers.ModelSerializer):
+    drug_name = serializers.CharField(source="drug.display_name", read_only=True)
+    price_type_label = serializers.CharField(source="get_price_type_display", read_only=True)
+
+    class Meta:
+        model = ReferencePrice
+        fields = "__all__"
+        read_only_fields = ["drug_name", "price_type_label"]
+
+    def validate(self, attrs):
+        is_limited = attrs.get("is_limited")
+        price = attrs.get("price")
+
+        if is_limited is None and self.instance is not None:
+            is_limited = self.instance.is_limited
+        if price is None and self.instance is not None:
+            price = self.instance.price
+
+        if is_limited is False:
+            attrs["price"] = None
+        elif price is None or price <= 0:
+            raise serializers.ValidationError({"price": "Референт чеклов бор бўлса нарх 0 дан катта бўлиши керак."})
+
+        return attrs
+
+
+class StockBatchSerializer(serializers.ModelSerializer):
+    branch_name = serializers.CharField(source="branch.name", read_only=True)
+    branch_type = serializers.CharField(source="branch.branch_type", read_only=True)
+    drug_name = serializers.CharField(source="drug.display_name", read_only=True)
+    supplier_name = serializers.CharField(source="supplier.name", read_only=True)
+    sale_blocked = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = StockBatch
+        fields = "__all__"
+        read_only_fields = ["branch_name", "branch_type", "drug_name", "supplier_name", "sale_blocked"]
+
+    def validate(self, attrs):
+        qty = attrs.get("quantity")
+        if qty is None and self.instance is not None:
+            qty = self.instance.quantity
+        if qty is not None and qty < 0:
+            raise serializers.ValidationError({"quantity": "Қолдиқ миқдори манфий бўлиши мумкин эмас."})
+
+        for field in ["purchase_price", "wholesale_price", "retail_price"]:
+            value = attrs.get(field)
+            if value is not None and value < 0:
+                raise serializers.ValidationError({field: "Нарх манфий бўлиши мумкин эмас."})
+
+        return attrs
+# --- /PROFESSIONAL TRADE / REFERENCE PRICE SERIALIZERS 2026-05-26 ---

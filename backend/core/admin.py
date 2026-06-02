@@ -152,3 +152,30 @@ class DrugOptionAdmin(admin.ModelAdmin):
     list_filter = ("kind", "is_active")
     search_fields = ("name", "aliases")
     ordering = ("kind", "sort_order", "name")
+
+# Professional trade/reference/stock admin registration
+from .models import Supplier, TradeBranch, ReferencePrice, StockBatch
+
+@admin.register(Supplier)
+class SupplierAdmin(admin.ModelAdmin):
+    list_display = ("name", "inn", "license_no", "is_active", "updated_at")
+    search_fields = ("name", "inn", "license_no")
+    list_filter = ("is_active",)
+
+@admin.register(TradeBranch)
+class TradeBranchAdmin(admin.ModelAdmin):
+    list_display = ("name", "branch_type", "is_active", "updated_at")
+    search_fields = ("name", "address")
+    list_filter = ("branch_type", "is_active")
+
+@admin.register(ReferencePrice)
+class ReferencePriceAdmin(admin.ModelAdmin):
+    list_display = ("drug", "price_type", "price", "is_limited", "start_date", "is_active")
+    search_fields = ("drug__name", "drug__full_name", "source_doc")
+    list_filter = ("price_type", "is_limited", "is_active", "start_date")
+
+@admin.register(StockBatch)
+class StockBatchAdmin(admin.ModelAdmin):
+    list_display = ("branch", "drug", "series", "expiry_date", "quantity", "is_quarantine", "is_recalled")
+    search_fields = ("drug__name", "drug__full_name", "series", "supplier__name")
+    list_filter = ("branch__branch_type", "is_quarantine", "is_recalled", "expiry_date")
